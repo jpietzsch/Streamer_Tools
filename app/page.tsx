@@ -35,7 +35,7 @@ export default function Home() {
 
         <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
           No account. No Canva replacement. Just fast tools for things streamers
-          need to make again and again. Made by Holzig 👍. This is basically still just a alpha... maybe beta, so only the schedule maker works. Dont forget to export ur template, otherwise its GONE.
+          need to make again and again. Made by Holzig 👍. This is a beta now... i think... so only the schedule maker works. Dont forget to export ur template, otherwise its GONE. Added the simple editing mode, should streamline the editing process.
         </p>
 
         <div className="mt-12 grid gap-4 md:grid-cols-3">

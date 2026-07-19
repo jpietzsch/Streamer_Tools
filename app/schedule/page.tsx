@@ -159,7 +159,7 @@ function normalizeRotation(degrees: number): number {
 }
 
 type ScheduleTemplateV1 = {
-  version: 6;
+  version: 7;
   exportedAt: string;
 
   project: {
@@ -171,6 +171,7 @@ type ScheduleTemplateV1 = {
 
   canvas: {
     aspectRatio: AspectRatioId;
+    scheduleLayout: ScheduleLayout;
   };
 
   header: HeaderStyle;
@@ -364,10 +365,12 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   },
 ];
 
-const TEMPLATE_VERSION = 6;
+const TEMPLATE_VERSION = 7;
 const MAX_TEMPLATE_SIZE_BYTES = 50 * 1024 * 1024;
 
 type AspectRatioId = "16:9" | "9:16" | "1:1" | "4:5";
+type ScheduleLayout = "cards" | "list";
+type CustomizationMode = "simple" | "advanced";
 
 const ASPECT_RATIOS: Record<
   AspectRatioId,
@@ -672,6 +675,10 @@ function isAspectRatioId(value: unknown): value is AspectRatioId {
   );
 }
 
+function isScheduleLayout(value: unknown): value is ScheduleLayout {
+  return value === "cards" || value === "list";
+}
+
 function isDateInputValue(value: unknown): value is string {
   if (value === "") {
     return true;
@@ -909,7 +916,11 @@ function validateTemplate(value: unknown): value is ScheduleTemplateV1 {
     return false;
   }
 
-  if (!isRecord(value.canvas) || !isAspectRatioId(value.canvas.aspectRatio)) {
+  if (
+    !isRecord(value.canvas) ||
+    !isAspectRatioId(value.canvas.aspectRatio) ||
+    !isScheduleLayout(value.canvas.scheduleLayout)
+  ) {
     return false;
   }
 
@@ -1053,6 +1064,9 @@ export default function SchedulePage() {
   const [scheduleEndDate, setScheduleEndDate] = useState("");
 
   const [aspectRatioId, setAspectRatioId] = useState<AspectRatioId>("16:9");
+  const [scheduleLayout, setScheduleLayout] = useState<ScheduleLayout>("cards");
+  const [customizationMode, setCustomizationMode] =
+    useState<CustomizationMode>("advanced");
 
   const [detectedTimezone] = useState(getBrowserTimezone);
   const [overrideTimezoneEnabled, setOverrideTimezoneEnabled] = useState(false);
@@ -2102,6 +2116,7 @@ export default function SchedulePage() {
 
       canvas: {
         aspectRatio: aspectRatioId,
+        scheduleLayout,
       },
 
       header: headerStyle,
@@ -2237,6 +2252,7 @@ export default function SchedulePage() {
       setScheduleEndDate(parsed.project.scheduleEndDate);
 
       setAspectRatioId(parsed.canvas.aspectRatio);
+      setScheduleLayout(parsed.canvas.scheduleLayout);
 
       setHeaderStyle(parsed.header);
 
@@ -2446,9 +2462,43 @@ export default function SchedulePage() {
         <div className="absolute inset-x-0 top-0 flex h-[80vh] flex-col">
           <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_top_right,#312e81,transparent_35%),radial-gradient(circle_at_bottom_left,#155e75,transparent_35%),#020617] p-6">
             <div className="mb-3 flex shrink-0 items-center justify-between">
-              <p className="text-sm font-semibold text-slate-400">
-                Live preview
-              </p>
+              <div className="flex items-center gap-3">
+                <div
+                  role="group"
+                  aria-label="Customization mode"
+                  className="flex items-center gap-0.5 rounded-full border border-slate-700 p-0.5"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setCustomizationMode("simple")}
+                    className={[
+                      "rounded-full px-3 py-1 text-xs font-bold transition",
+                      customizationMode === "simple"
+                        ? "bg-violet-500 text-white"
+                        : "text-slate-400 hover:text-slate-200",
+                    ].join(" ")}
+                  >
+                    Simple
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCustomizationMode("advanced")}
+                    className={[
+                      "rounded-full px-3 py-1 text-xs font-bold transition",
+                      customizationMode === "advanced"
+                        ? "bg-violet-500 text-white"
+                        : "text-slate-400 hover:text-slate-200",
+                    ].join(" ")}
+                  >
+                    Advanced
+                  </button>
+                </div>
+
+                <p className="text-sm font-semibold text-slate-400">
+                  Live preview
+                </p>
+              </div>
 
               <p className="text-xs text-slate-500">
                 {canvasWidth} × {canvasHeight} canvas ·{" "}
@@ -2577,43 +2627,71 @@ export default function SchedulePage() {
                       </div>
                     )}
 
-                    <div
-                      className={
-                        isGridLayout
-                          ? "relative mt-auto grid h-[60%] gap-4"
-                          : "relative mt-auto flex h-[48%] items-end gap-4"
-                      }
-                      style={
-                        isGridLayout
-                          ? {
-                              gridTemplateColumns: `repeat(${gridColumns}, 1fr)`,
-                              gridAutoRows: "1fr",
+                    {scheduleLayout === "cards" ? (
+                      <div
+                        className={
+                          isGridLayout
+                            ? "relative mt-auto grid h-[60%] gap-4"
+                            : "relative mt-auto flex h-[48%] items-end gap-4"
+                        }
+                        style={
+                          isGridLayout
+                            ? {
+                                gridTemplateColumns: `repeat(${gridColumns}, 1fr)`,
+                                gridAutoRows: "1fr",
+                              }
+                            : undefined
+                        }
+                      >
+                        {schedule.map((item, index) => (
+                          <ScheduleCard
+                            key={index}
+                            item={item}
+                            layout={isGridLayout ? "grid" : "row"}
+                            widthPercent={calculatedWidths[index]}
+                            selected={
+                              !isExportingPng && selectedIndex === index
                             }
-                          : undefined
-                      }
-                    >
-                      {schedule.map((item, index) => (
-                        <ScheduleCard
-                          key={index}
-                          item={item}
-                          layout={isGridLayout ? "grid" : "row"}
-                          widthPercent={calculatedWidths[index]}
-                          selected={!isExportingPng && selectedIndex === index}
-                          activeColor={theme.cardActive}
-                          restColor={theme.cardRest}
-                          textColor={theme.text}
-                          onSelect={() => {
-                            if (isExportingPng) {
-                              return;
-                            }
+                            activeColor={theme.cardActive}
+                            restColor={theme.cardRest}
+                            textColor={theme.text}
+                            onSelect={() => {
+                              if (isExportingPng) {
+                                return;
+                              }
 
-                            setSelectedIndex(index);
-                            setSelectedStickerId(null);
-                            setActiveTab("day");
-                          }}
-                        />
-                      ))}
-                    </div>
+                              setSelectedIndex(index);
+                              setSelectedStickerId(null);
+                              setActiveTab("day");
+                            }}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="relative mt-auto flex flex-col gap-2 overflow-hidden">
+                        {schedule.map((item, index) => (
+                          <ScheduleListRow
+                            key={index}
+                            item={item}
+                            selected={
+                              !isExportingPng && selectedIndex === index
+                            }
+                            activeColor={theme.cardActive}
+                            restColor={theme.cardRest}
+                            textColor={theme.text}
+                            onSelect={() => {
+                              if (isExportingPng) {
+                                return;
+                              }
+
+                              setSelectedIndex(index);
+                              setSelectedStickerId(null);
+                              setActiveTab("day");
+                            }}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="pointer-events-none absolute inset-0">
@@ -2939,81 +3017,103 @@ export default function SchedulePage() {
                           ),
                         )}
                       </div>
+
+                      <p className="text-xs leading-5 text-slate-500">
+                        Choose how the schedule itself is displayed.
+                      </p>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <SmallButton
+                          active={scheduleLayout === "cards"}
+                          onClick={() => setScheduleLayout("cards")}
+                        >
+                          Cards
+                        </SmallButton>
+
+                        <SmallButton
+                          active={scheduleLayout === "list"}
+                          onClick={() => setScheduleLayout("list")}
+                        >
+                          List
+                        </SmallButton>
+                      </div>
                     </Panel>
 
-                    <Panel title="Header typography">
-                      <RangeInput
-                        label="Avatar size"
-                        value={headerStyle.avatarSize}
-                        min={40}
-                        max={300}
-                        step={2}
-                        suffix="px"
-                        onChange={(value) =>
-                          updateHeaderStyle("avatarSize", value)
-                        }
-                      />
+                    {customizationMode === "advanced" && (
+                      <Panel title="Header typography">
+                        <RangeInput
+                          label="Avatar size"
+                          value={headerStyle.avatarSize}
+                          min={40}
+                          max={300}
+                          step={2}
+                          suffix="px"
+                          onChange={(value) =>
+                            updateHeaderStyle("avatarSize", value)
+                          }
+                        />
 
-                      <RangeInput
-                        label="Avatar gap"
-                        value={headerStyle.avatarGap}
-                        min={0}
-                        max={100}
-                        step={2}
-                        suffix="px"
-                        onChange={(value) =>
-                          updateHeaderStyle("avatarGap", value)
-                        }
-                      />
+                        <RangeInput
+                          label="Avatar gap"
+                          value={headerStyle.avatarGap}
+                          min={0}
+                          max={100}
+                          step={2}
+                          suffix="px"
+                          onChange={(value) =>
+                            updateHeaderStyle("avatarGap", value)
+                          }
+                        />
 
-                      <RangeInput
-                        label="Eyebrow size"
-                        value={headerStyle.eyebrowFontSize}
-                        min={8}
-                        max={60}
-                        step={1}
-                        suffix="px"
-                        onChange={(value) =>
-                          updateHeaderStyle("eyebrowFontSize", value)
-                        }
-                      />
+                        <RangeInput
+                          label="Eyebrow size"
+                          value={headerStyle.eyebrowFontSize}
+                          min={8}
+                          max={60}
+                          step={1}
+                          suffix="px"
+                          onChange={(value) =>
+                            updateHeaderStyle("eyebrowFontSize", value)
+                          }
+                        />
 
-                      <RangeInput
-                        label="Title size"
-                        value={headerStyle.titleFontSize}
-                        min={16}
-                        max={160}
-                        step={1}
-                        suffix="px"
-                        onChange={(value) =>
-                          updateHeaderStyle("titleFontSize", value)
-                        }
-                      />
+                        <RangeInput
+                          label="Title size"
+                          value={headerStyle.titleFontSize}
+                          min={16}
+                          max={160}
+                          step={1}
+                          suffix="px"
+                          onChange={(value) =>
+                            updateHeaderStyle("titleFontSize", value)
+                          }
+                        />
 
-                      <RangeInput
-                        label="Date size"
-                        value={headerStyle.dateFontSize}
-                        min={8}
-                        max={80}
-                        step={1}
-                        suffix="px"
-                        onChange={(value) =>
-                          updateHeaderStyle("dateFontSize", value)
-                        }
-                      />
+                        <RangeInput
+                          label="Date size"
+                          value={headerStyle.dateFontSize}
+                          min={8}
+                          max={80}
+                          step={1}
+                          suffix="px"
+                          onChange={(value) =>
+                            updateHeaderStyle("dateFontSize", value)
+                          }
+                        />
 
-                      <RangeInput
-                        label="Text line gap"
-                        value={headerStyle.textGap}
-                        min={0}
-                        max={60}
-                        step={1}
-                        suffix="px"
-                        onChange={(value) =>
-                          updateHeaderStyle("textGap", value)
-                        }
-                      />
-                    </Panel>
+                        <RangeInput
+                          label="Text line gap"
+                          value={headerStyle.textGap}
+                          min={0}
+                          max={60}
+                          step={1}
+                          suffix="px"
+                          onChange={(value) =>
+                            updateHeaderStyle("textGap", value)
+                          }
+                        />
+                      </Panel>
+                    )}
                   </>
                 )}
 
@@ -3235,132 +3335,137 @@ export default function SchedulePage() {
                           }
                         />
 
-                        <RangeInput
-                          label="Corner radius"
-                          value={selectedSticker.borderRadius}
-                          min={0}
-                          max={200}
-                          suffix="px"
-                          onChange={(value) =>
-                            updateSticker(
-                              selectedSticker.id,
-                              "borderRadius",
-                              value,
-                            )
-                          }
-                        />
-
-                        <RangeInput
-                          label="Border width"
-                          value={selectedSticker.borderWidth}
-                          min={0}
-                          max={40}
-                          suffix="px"
-                          onChange={(value) =>
-                            updateSticker(
-                              selectedSticker.id,
-                              "borderWidth",
-                              value,
-                            )
-                          }
-                        />
-
-                        <ColorInput
-                          label="Border color"
-                          value={selectedSticker.borderColor}
-                          onChange={(value) =>
-                            updateSticker(
-                              selectedSticker.id,
-                              "borderColor",
-                              value,
-                            )
-                          }
-                        />
-
-                        <RangeInput
-                          label="Shadow"
-                          value={selectedSticker.shadowOffset}
-                          min={0}
-                          max={80}
-                          suffix="px"
-                          onChange={(value) =>
-                            updateSticker(
-                              selectedSticker.id,
-                              "shadowOffset",
-                              value,
-                            )
-                          }
-                        />
-
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-slate-500">
-                            Shadow direction
-                          </p>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            {SHADOW_DIRECTIONS.map((direction) => (
-                              <SmallButton
-                                key={direction}
-                                active={
-                                  selectedSticker.shadowDirection === direction
-                                }
-                                onClick={() =>
-                                  updateSticker(
-                                    selectedSticker.id,
-                                    "shadowDirection",
-                                    direction,
-                                  )
-                                }
-                              >
-                                {direction.replace("-", " ")}
-                              </SmallButton>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-slate-500">
-                            Layering
-                          </p>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            <SmallButton
-                              active={false}
-                              onClick={() =>
-                                moveSticker(selectedSticker.id, "front")
+                        {customizationMode === "advanced" && (
+                          <>
+                            <RangeInput
+                              label="Corner radius"
+                              value={selectedSticker.borderRadius}
+                              min={0}
+                              max={200}
+                              suffix="px"
+                              onChange={(value) =>
+                                updateSticker(
+                                  selectedSticker.id,
+                                  "borderRadius",
+                                  value,
+                                )
                               }
-                            >
-                              Bring to front
-                            </SmallButton>
+                            />
 
-                            <SmallButton
-                              active={false}
-                              onClick={() =>
-                                moveSticker(selectedSticker.id, "back")
+                            <RangeInput
+                              label="Border width"
+                              value={selectedSticker.borderWidth}
+                              min={0}
+                              max={40}
+                              suffix="px"
+                              onChange={(value) =>
+                                updateSticker(
+                                  selectedSticker.id,
+                                  "borderWidth",
+                                  value,
+                                )
                               }
-                            >
-                              Send to back
-                            </SmallButton>
+                            />
 
-                            <SmallButton
-                              active={false}
-                              onClick={() =>
-                                moveSticker(selectedSticker.id, "forward")
+                            <ColorInput
+                              label="Border color"
+                              value={selectedSticker.borderColor}
+                              onChange={(value) =>
+                                updateSticker(
+                                  selectedSticker.id,
+                                  "borderColor",
+                                  value,
+                                )
                               }
-                            >
-                              Forward
-                            </SmallButton>
+                            />
 
-                            <SmallButton
-                              active={false}
-                              onClick={() =>
-                                moveSticker(selectedSticker.id, "backward")
+                            <RangeInput
+                              label="Shadow"
+                              value={selectedSticker.shadowOffset}
+                              min={0}
+                              max={80}
+                              suffix="px"
+                              onChange={(value) =>
+                                updateSticker(
+                                  selectedSticker.id,
+                                  "shadowOffset",
+                                  value,
+                                )
                               }
-                            >
-                              Backward
-                            </SmallButton>
-                          </div>
-                        </div>
+                            />
+
+                            <div className="space-y-1">
+                              <p className="text-xs font-semibold text-slate-500">
+                                Shadow direction
+                              </p>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                {SHADOW_DIRECTIONS.map((direction) => (
+                                  <SmallButton
+                                    key={direction}
+                                    active={
+                                      selectedSticker.shadowDirection ===
+                                      direction
+                                    }
+                                    onClick={() =>
+                                      updateSticker(
+                                        selectedSticker.id,
+                                        "shadowDirection",
+                                        direction,
+                                      )
+                                    }
+                                  >
+                                    {direction.replace("-", " ")}
+                                  </SmallButton>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <p className="text-xs font-semibold text-slate-500">
+                                Layering
+                              </p>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <SmallButton
+                                  active={false}
+                                  onClick={() =>
+                                    moveSticker(selectedSticker.id, "front")
+                                  }
+                                >
+                                  Bring to front
+                                </SmallButton>
+
+                                <SmallButton
+                                  active={false}
+                                  onClick={() =>
+                                    moveSticker(selectedSticker.id, "back")
+                                  }
+                                >
+                                  Send to back
+                                </SmallButton>
+
+                                <SmallButton
+                                  active={false}
+                                  onClick={() =>
+                                    moveSticker(selectedSticker.id, "forward")
+                                  }
+                                >
+                                  Forward
+                                </SmallButton>
+
+                                <SmallButton
+                                  active={false}
+                                  onClick={() =>
+                                    moveSticker(selectedSticker.id, "backward")
+                                  }
+                                >
+                                  Backward
+                                </SmallButton>
+                              </div>
+                            </div>
+                          </>
+                        )}
 
                         <button
                           type="button"
@@ -3518,49 +3623,51 @@ export default function SchedulePage() {
                           }
                         />
 
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-slate-500">
-                            Layering
-                          </p>
+                        {customizationMode === "advanced" && (
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-slate-500">
+                              Layering
+                            </p>
 
-                          <div className="grid grid-cols-2 gap-2">
-                            <SmallButton
-                              active={false}
-                              onClick={() =>
-                                moveTextBox(selectedTextBox.id, "front")
-                              }
-                            >
-                              Bring to front
-                            </SmallButton>
+                            <div className="grid grid-cols-2 gap-2">
+                              <SmallButton
+                                active={false}
+                                onClick={() =>
+                                  moveTextBox(selectedTextBox.id, "front")
+                                }
+                              >
+                                Bring to front
+                              </SmallButton>
 
-                            <SmallButton
-                              active={false}
-                              onClick={() =>
-                                moveTextBox(selectedTextBox.id, "back")
-                              }
-                            >
-                              Send to back
-                            </SmallButton>
+                              <SmallButton
+                                active={false}
+                                onClick={() =>
+                                  moveTextBox(selectedTextBox.id, "back")
+                                }
+                              >
+                                Send to back
+                              </SmallButton>
 
-                            <SmallButton
-                              active={false}
-                              onClick={() =>
-                                moveTextBox(selectedTextBox.id, "forward")
-                              }
-                            >
-                              Forward
-                            </SmallButton>
+                              <SmallButton
+                                active={false}
+                                onClick={() =>
+                                  moveTextBox(selectedTextBox.id, "forward")
+                                }
+                              >
+                                Forward
+                              </SmallButton>
 
-                            <SmallButton
-                              active={false}
-                              onClick={() =>
-                                moveTextBox(selectedTextBox.id, "backward")
-                              }
-                            >
-                              Backward
-                            </SmallButton>
+                              <SmallButton
+                                active={false}
+                                onClick={() =>
+                                  moveTextBox(selectedTextBox.id, "backward")
+                                }
+                              >
+                                Backward
+                              </SmallButton>
+                            </div>
                           </div>
-                        </div>
+                        )}
 
                         <button
                           type="button"
@@ -3632,210 +3739,232 @@ export default function SchedulePage() {
                         onChange={(checked) => updateDay("active", checked)}
                       />
                     </Panel>
-                    <Panel title={`${selectedDay.day} width`}>
-                      {isGridLayout ? (
-                        <p className="text-xs leading-5 text-slate-500">
-                          Width controls only apply to the 16:9 row layout. On{" "}
-                          {ASPECT_RATIOS[aspectRatioId].label}, cards fill their
-                          grid cell evenly — use the card style panel for height
-                          instead.
-                        </p>
-                      ) : (
-                        <>
-                          <ToggleInput
-                            label="Lock card width"
-                            checked={selectedDay.widthLocked}
-                            onChange={toggleSelectedDayWidthLock}
+                    {customizationMode === "advanced" && (
+                      <>
+                        <Panel title={`${selectedDay.day} width`}>
+                          {isGridLayout ? (
+                            <p className="text-xs leading-5 text-slate-500">
+                              Width controls only apply to the 16:9 row layout.
+                              On {ASPECT_RATIOS[aspectRatioId].label}, cards
+                              fill their grid cell evenly — use the card style
+                              panel for height instead.
+                            </p>
+                          ) : (
+                            <>
+                              <ToggleInput
+                                label="Lock card width"
+                                checked={selectedDay.widthLocked}
+                                onChange={toggleSelectedDayWidthLock}
+                              />
+
+                              {selectedDay.widthLocked ? (
+                                <RangeInput
+                                  label="Locked width"
+                                  value={Number(
+                                    selectedDay.lockedWidthPercent.toFixed(1),
+                                  )}
+                                  min={5}
+                                  max={50}
+                                  step={0.5}
+                                  suffix="%"
+                                  onChange={(value) =>
+                                    updateDay("lockedWidthPercent", value)
+                                  }
+                                />
+                              ) : (
+                                <RangeInput
+                                  label="Relative width"
+                                  value={selectedDay.widthWeight}
+                                  min={0.5}
+                                  max={2.5}
+                                  step={0.1}
+                                  onChange={(value) =>
+                                    updateDay("widthWeight", value)
+                                  }
+                                />
+                              )}
+
+                              <p className="text-xs leading-5 text-slate-500">
+                                Locked cards keep their width while unlocked
+                                cards divide the remaining space.
+                              </p>
+                            </>
+                          )}
+                        </Panel>
+                        <Panel title={`${selectedDay.day} typography`}>
+                          <RangeInput
+                            label="Weekday size"
+                            value={selectedDay.dayFontSize}
+                            min={10}
+                            max={36}
+                            suffix="px"
+                            onChange={(value) =>
+                              updateDay("dayFontSize", value)
+                            }
                           />
 
-                          {selectedDay.widthLocked ? (
-                            <RangeInput
-                              label="Locked width"
-                              value={Number(
-                                selectedDay.lockedWidthPercent.toFixed(1),
-                              )}
-                              min={5}
-                              max={50}
-                              step={0.5}
-                              suffix="%"
-                              onChange={(value) =>
-                                updateDay("lockedWidthPercent", value)
-                              }
-                            />
-                          ) : (
-                            <RangeInput
-                              label="Relative width"
-                              value={selectedDay.widthWeight}
-                              min={0.5}
-                              max={2.5}
-                              step={0.1}
-                              onChange={(value) =>
-                                updateDay("widthWeight", value)
-                              }
-                            />
-                          )}
+                          <RangeInput
+                            label="Title size"
+                            value={selectedDay.titleFontSize}
+                            min={12}
+                            max={54}
+                            suffix="px"
+                            onChange={(value) =>
+                              updateDay("titleFontSize", value)
+                            }
+                          />
 
-                          <p className="text-xs leading-5 text-slate-500">
-                            Locked cards keep their width while unlocked cards
-                            divide the remaining space.
-                          </p>
-                        </>
-                      )}
-                    </Panel>
-                    <Panel title={`${selectedDay.day} typography`}>
-                      <RangeInput
-                        label="Weekday size"
-                        value={selectedDay.dayFontSize}
-                        min={10}
-                        max={36}
-                        suffix="px"
-                        onChange={(value) => updateDay("dayFontSize", value)}
-                      />
+                          <RangeInput
+                            label="Time size"
+                            value={selectedDay.timeFontSize}
+                            min={10}
+                            max={40}
+                            suffix="px"
+                            onChange={(value) =>
+                              updateDay("timeFontSize", value)
+                            }
+                          />
 
-                      <RangeInput
-                        label="Title size"
-                        value={selectedDay.titleFontSize}
-                        min={12}
-                        max={54}
-                        suffix="px"
-                        onChange={(value) => updateDay("titleFontSize", value)}
-                      />
+                          <RangeInput
+                            label="Note size"
+                            value={selectedDay.noteFontSize}
+                            min={10}
+                            max={36}
+                            suffix="px"
+                            onChange={(value) =>
+                              updateDay("noteFontSize", value)
+                            }
+                          />
+                        </Panel>
+                        <Panel title={`${selectedDay.day} card style`}>
+                          <RangeInput
+                            label="Height"
+                            value={selectedDay.height}
+                            min={40}
+                            max={100}
+                            suffix="%"
+                            onChange={(value) => updateDay("height", value)}
+                          />
 
-                      <RangeInput
-                        label="Time size"
-                        value={selectedDay.timeFontSize}
-                        min={10}
-                        max={40}
-                        suffix="px"
-                        onChange={(value) => updateDay("timeFontSize", value)}
-                      />
+                          <RangeInput
+                            label="Rotation"
+                            value={selectedDay.rotation}
+                            min={-12}
+                            max={12}
+                            suffix="°"
+                            onChange={(value) => updateDay("rotation", value)}
+                          />
 
-                      <RangeInput
-                        label="Note size"
-                        value={selectedDay.noteFontSize}
-                        min={10}
-                        max={36}
-                        suffix="px"
-                        onChange={(value) => updateDay("noteFontSize", value)}
-                      />
-                    </Panel>
-                    <Panel title={`${selectedDay.day} card style`}>
-                      <RangeInput
-                        label="Height"
-                        value={selectedDay.height}
-                        min={40}
-                        max={100}
-                        suffix="%"
-                        onChange={(value) => updateDay("height", value)}
-                      />
+                          <RangeInput
+                            label="Corner radius"
+                            value={selectedDay.borderRadius}
+                            min={0}
+                            max={60}
+                            suffix="px"
+                            onChange={(value) =>
+                              updateDay("borderRadius", value)
+                            }
+                          />
 
-                      <RangeInput
-                        label="Rotation"
-                        value={selectedDay.rotation}
-                        min={-12}
-                        max={12}
-                        suffix="°"
-                        onChange={(value) => updateDay("rotation", value)}
-                      />
+                          <RangeInput
+                            label="Outline width"
+                            value={selectedDay.borderWidth}
+                            min={0}
+                            max={12}
+                            suffix="px"
+                            onChange={(value) =>
+                              updateDay("borderWidth", value)
+                            }
+                          />
 
-                      <RangeInput
-                        label="Corner radius"
-                        value={selectedDay.borderRadius}
-                        min={0}
-                        max={60}
-                        suffix="px"
-                        onChange={(value) => updateDay("borderRadius", value)}
-                      />
+                          <ColorInput
+                            label="Outline color"
+                            value={selectedDay.borderColor}
+                            onChange={(value) =>
+                              updateDay("borderColor", value)
+                            }
+                          />
 
-                      <RangeInput
-                        label="Outline width"
-                        value={selectedDay.borderWidth}
-                        min={0}
-                        max={12}
-                        suffix="px"
-                        onChange={(value) => updateDay("borderWidth", value)}
-                      />
+                          <RangeInput
+                            label="Shadow offset"
+                            value={selectedDay.shadowOffset}
+                            min={0}
+                            max={30}
+                            suffix="px"
+                            onChange={(value) =>
+                              updateDay("shadowOffset", value)
+                            }
+                          />
 
-                      <ColorInput
-                        label="Outline color"
-                        value={selectedDay.borderColor}
-                        onChange={(value) => updateDay("borderColor", value)}
-                      />
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-slate-500">
+                              Shadow direction
+                            </p>
 
-                      <RangeInput
-                        label="Shadow offset"
-                        value={selectedDay.shadowOffset}
-                        min={0}
-                        max={30}
-                        suffix="px"
-                        onChange={(value) => updateDay("shadowOffset", value)}
-                      />
+                            <div className="grid grid-cols-2 gap-2">
+                              {SHADOW_DIRECTIONS.map((direction) => (
+                                <SmallButton
+                                  key={direction}
+                                  active={
+                                    selectedDay.shadowDirection === direction
+                                  }
+                                  onClick={() =>
+                                    updateDay("shadowDirection", direction)
+                                  }
+                                >
+                                  {direction.replace("-", " ")}
+                                </SmallButton>
+                              ))}
+                            </div>
+                          </div>
 
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold text-slate-500">
-                          Shadow direction
-                        </p>
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-slate-500">
+                              Layering
+                            </p>
 
-                        <div className="grid grid-cols-2 gap-2">
-                          {SHADOW_DIRECTIONS.map((direction) => (
-                            <SmallButton
-                              key={direction}
-                              active={selectedDay.shadowDirection === direction}
-                              onClick={() =>
-                                updateDay("shadowDirection", direction)
-                              }
-                            >
-                              {direction.replace("-", " ")}
-                            </SmallButton>
-                          ))}
-                        </div>
-                      </div>
+                            <p className="text-xs leading-5 text-slate-500">
+                              Send a day back to let stickers or text peek out
+                              in front of it, or above.
+                            </p>
 
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold text-slate-500">
-                          Layering
-                        </p>
+                            <div className="grid grid-cols-2 gap-2">
+                              <SmallButton
+                                active={false}
+                                onClick={() => moveDay("front")}
+                              >
+                                Bring to front
+                              </SmallButton>
 
-                        <p className="text-xs leading-5 text-slate-500">
-                          Send a day back to let stickers or text peek out in
-                          front of it, or above.
-                        </p>
+                              <SmallButton
+                                active={false}
+                                onClick={() => moveDay("back")}
+                              >
+                                Send to back
+                              </SmallButton>
 
-                        <div className="grid grid-cols-2 gap-2">
-                          <SmallButton
-                            active={false}
-                            onClick={() => moveDay("front")}
-                          >
-                            Bring to front
-                          </SmallButton>
+                              <SmallButton
+                                active={false}
+                                onClick={() => moveDay("forward")}
+                              >
+                                Forward
+                              </SmallButton>
 
-                          <SmallButton
-                            active={false}
-                            onClick={() => moveDay("back")}
-                          >
-                            Send to back
-                          </SmallButton>
+                              <SmallButton
+                                active={false}
+                                onClick={() => moveDay("backward")}
+                              >
+                                Backward
+                              </SmallButton>
+                            </div>
+                          </div>
 
-                          <SmallButton
-                            active={false}
-                            onClick={() => moveDay("forward")}
-                          >
-                            Forward
-                          </SmallButton>
-
-                          <SmallButton
-                            active={false}
-                            onClick={() => moveDay("backward")}
-                          >
-                            Backward
-                          </SmallButton>
-                        </div>
-                      </div>
-
-                      <SecondaryButton onClick={resetSelectedDayStyle}>
-                        Reset card style
-                      </SecondaryButton>
-                    </Panel>
+                          <SecondaryButton onClick={resetSelectedDayStyle}>
+                            Reset card style
+                          </SecondaryButton>
+                        </Panel>
+                      </>
+                    )}
                   </>
                 )}
 
@@ -3955,6 +4084,55 @@ export default function SchedulePage() {
         </aside>
       </section>
     </main>
+  );
+}
+
+function ScheduleListRow({
+  item,
+  selected,
+  activeColor,
+  restColor,
+  textColor,
+  onSelect,
+}: {
+  item: DayItem;
+  selected: boolean;
+  activeColor: string;
+  restColor: string;
+  textColor: string;
+  onSelect: () => void;
+}) {
+  const parts = [item.title, item.time, item.note].filter((part) =>
+    part.trim(),
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={[
+        "flex w-full items-baseline gap-3 rounded-lg px-2 py-1 text-left transition",
+        selected ? "bg-white/10" : "hover:bg-white/5",
+      ].join(" ")}
+      style={{ zIndex: item.zIndex, position: "relative" }}
+    >
+      <span
+        className="shrink-0 font-black uppercase"
+        style={{
+          fontSize: `${item.dayFontSize}px`,
+          color: item.active ? activeColor : restColor,
+        }}
+      >
+        {item.day}
+      </span>
+
+      <span
+        className="truncate"
+        style={{ fontSize: `${item.titleFontSize}px`, color: textColor }}
+      >
+        {parts.length > 0 ? parts.join(" — ") : "—"}
+      </span>
+    </button>
   );
 }
 
