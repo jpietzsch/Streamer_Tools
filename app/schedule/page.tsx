@@ -2668,7 +2668,7 @@ export default function SchedulePage() {
                         ))}
                       </div>
                     ) : (
-                      <div className="relative mt-auto flex flex-col gap-2 overflow-hidden">
+                      <div className="relative mt-auto flex h-[55%] flex-col gap-2 overflow-hidden">
                         {schedule.map((item, index) => (
                           <ScheduleListRow
                             key={index}
@@ -3742,7 +3742,14 @@ export default function SchedulePage() {
                     {customizationMode === "advanced" && (
                       <>
                         <Panel title={`${selectedDay.day} width`}>
-                          {isGridLayout ? (
+                          {scheduleLayout === "list" ? (
+                            <p className="text-xs leading-5 text-slate-500">
+                              List rows always span full width. Use the
+                              &quot;Height&quot; slider in card style to control
+                              how much vertical space this row takes relative to
+                              the others.
+                            </p>
+                          ) : isGridLayout ? (
                             <p className="text-xs leading-5 text-slate-500">
                               Width controls only apply to the 16:9 row layout.
                               On {ASPECT_RATIOS[aspectRatioId].label}, cards
@@ -3837,14 +3844,32 @@ export default function SchedulePage() {
                           />
                         </Panel>
                         <Panel title={`${selectedDay.day} card style`}>
-                          <RangeInput
-                            label="Height"
-                            value={selectedDay.height}
-                            min={40}
-                            max={100}
-                            suffix="%"
-                            onChange={(value) => updateDay("height", value)}
-                          />
+                          {scheduleLayout === "list" ? (
+                            <>
+                              <RangeInput
+                                label="Height (relative weight)"
+                                value={selectedDay.height}
+                                min={10}
+                                max={400}
+                                onChange={(value) => updateDay("height", value)}
+                              />
+
+                              <p className="text-xs leading-5 text-slate-500">
+                                Rows are sized relative to each other's weight —
+                                a row with 200 takes up twice the space of a row
+                                with 100.
+                              </p>
+                            </>
+                          ) : (
+                            <RangeInput
+                              label="Height"
+                              value={selectedDay.height}
+                              min={40}
+                              max={100}
+                              suffix="%"
+                              onChange={(value) => updateDay("height", value)}
+                            />
+                          )}
 
                           <RangeInput
                             label="Rotation"
@@ -4102,37 +4127,85 @@ function ScheduleListRow({
   textColor: string;
   onSelect: () => void;
 }) {
-  const parts = [item.title, item.time, item.note].filter((part) =>
-    part.trim(),
-  );
+  const shadowXY = getShadowOffsetXY(item.shadowOffset, item.shadowDirection);
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={[
-        "flex w-full items-baseline gap-3 rounded-lg px-2 py-1 text-left transition",
-        selected ? "bg-white/10" : "hover:bg-white/5",
-      ].join(" ")}
-      style={{ zIndex: item.zIndex, position: "relative" }}
+    <div
+      className="min-h-0 w-full shrink-0 transition-[flex-grow,transform] duration-200"
+      style={{
+        flexGrow: item.height,
+        flexBasis: 0,
+        minHeight: "32px",
+        transform: `rotate(${item.rotation}deg)`,
+        zIndex: item.zIndex,
+      }}
     >
-      <span
-        className="shrink-0 font-black uppercase"
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelect();
+        }}
+        className={[
+          "flex h-full w-full items-center gap-4 overflow-hidden px-5 py-2 text-left transition",
+          selected
+            ? "ring-2 ring-violet-400 ring-offset-4 ring-offset-transparent"
+            : "",
+        ].join(" ")}
         style={{
-          fontSize: `${item.dayFontSize}px`,
-          color: item.active ? activeColor : restColor,
+          background: item.active ? activeColor : restColor,
+          color: textColor,
+          borderRadius: `${item.borderRadius}px`,
+          borderWidth: `${item.borderWidth}px`,
+          borderColor: item.borderColor,
+          borderStyle: "solid",
+          boxShadow:
+            item.shadowOffset > 0
+              ? `${shadowXY.x}px ${shadowXY.y}px 0 rgba(0,0,0,0.85)`
+              : "none",
         }}
       >
-        {item.day}
-      </span>
+        <span
+          className="shrink-0 font-black uppercase tracking-[0.2em]"
+          style={{ fontSize: `${item.dayFontSize}px`, lineHeight: 1.2 }}
+        >
+          {item.day}
+        </span>
 
-      <span
-        className="truncate"
-        style={{ fontSize: `${item.titleFontSize}px`, color: textColor }}
-      >
-        {parts.length > 0 ? parts.join(" — ") : "—"}
-      </span>
-    </button>
+        <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
+          {item.title.trim() && (
+            <span
+              className="break-words font-black"
+              style={{ fontSize: `${item.titleFontSize}px`, lineHeight: 1.08 }}
+            >
+              {item.title}
+            </span>
+          )}
+
+          {item.time.trim() && (
+            <span
+              className="font-semibold"
+              style={{ fontSize: `${item.timeFontSize}px`, lineHeight: 1.25 }}
+            >
+              {item.time}
+            </span>
+          )}
+
+          {item.note.trim() && (
+            <span
+              className="break-words italic opacity-75"
+              style={{ fontSize: `${item.noteFontSize}px`, lineHeight: 1.45 }}
+            >
+              {item.note}
+            </span>
+          )}
+
+          {!item.title.trim() && !item.time.trim() && !item.note.trim() && (
+            <span className="opacity-50">—</span>
+          )}
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -4166,7 +4239,7 @@ function ScheduleCard({
       }
       style={{
         width: layout === "grid" ? "100%" : `calc(${widthPercent}% - 13.72px)`,
-        height: `${item.height}%`,
+        height: `${Math.min(100, Math.max(0, item.height))}%`,
         transform: `rotate(${item.rotation}deg)`,
         zIndex: item.zIndex,
       }}
