@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { DateTime } from "luxon";
@@ -48,6 +49,12 @@ import {
   type TextBox,
   type Theme,
 } from "../../lib/template";
+import {
+  clampSelection,
+  selectionKey,
+  type HeaderPart,
+  type Selection,
+} from "../../lib/selection";
 
 type DragState = {
   stickerId: string;
@@ -301,6 +308,26 @@ const DAY_DEFAULT_Z_INDEX = 10;
 const STICKER_DEFAULT_Z_INDEX = 20;
 const TEXT_BOX_DEFAULT_Z_INDEX = 30;
 const HEADER_Z_INDEX = 1000;
+
+// The violet outline drawn around the selected canvas element (never in exported PNGs).
+const SELECTED_OUTLINE =
+  "outline outline-2 outline-offset-4 outline-violet-400";
+
+// Everything a canvas element needs to be focusable and selectable (see selectableProps).
+type SelectableProps = {
+  role: "button";
+  tabIndex: number;
+  "aria-label": string;
+  "aria-pressed": boolean;
+  "data-select-key": string;
+  onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
+  onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
+};
+
+// Turns a stored day label like "WED" into "Wed" for screen-reader labels.
+function dayLabel(day: string): string {
+  return day.charAt(0).toUpperCase() + day.slice(1).toLowerCase();
+}
 
 const defaultDayStyle = {
   widthWeight: 1,
@@ -564,7 +591,9 @@ export default function SchedulePage() {
   const [copyStatus, setCopyStatus] = useState("");
 
   const [schedule, setSchedule] = useState(initialSchedule);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  // The one thing selected on the canvas (or null). This is the raw stored value; use
+  // activeSelection below, which drops it once the selected element no longer exists.
+  const [selection, setSelection] = useState<Selection>(null);
   const [theme, setTheme] = useState(initialTheme);
 
   const [backgroundPattern, setBackgroundPattern] =
@@ -585,14 +614,8 @@ export default function SchedulePage() {
     useState<HeaderStyle>(defaultHeaderStyle);
 
   const [stickers, setStickers] = useState<Sticker[]>([]);
-  const [selectedStickerId, setSelectedStickerId] = useState<string | null>(
-    null,
-  );
 
   const [textBoxes, setTextBoxes] = useState<TextBox[]>([]);
-  const [selectedTextBoxId, setSelectedTextBoxId] = useState<string | null>(
-    null,
-  );
 
   const [activeTab, setActiveTab] = useState<TabId>("project");
   const [panelHeight, setPanelHeight] = useState(340);
@@ -625,8 +648,6 @@ export default function SchedulePage() {
     null,
   );
 
-  const selectedDay = schedule[selectedIndex];
-
   const canvasWidth = ASPECT_RATIOS[aspectRatioId].width;
   const canvasHeight = ASPECT_RATIOS[aspectRatioId].height;
   const gridColumns = ASPECT_RATIOS[aspectRatioId].gridColumns;
@@ -636,14 +657,6 @@ export default function SchedulePage() {
     scheduleStartDate,
     scheduleEndDate,
   );
-
-  const selectedDayDate = getDateForDay(scheduleStartDate, selectedIndex);
-
-  const selectedSticker =
-    stickers.find((sticker) => sticker.id === selectedStickerId) ?? null;
-
-  const selectedTextBox =
-    textBoxes.find((textBox) => textBox.id === selectedTextBoxId) ?? null;
 
   const effectiveTimezone = overrideTimezoneEnabled
     ? overrideTimezone
@@ -664,11 +677,101 @@ export default function SchedulePage() {
     return supportedTimezones;
   }, [overrideTimezone]);
 
-  const showHeader =
-    Boolean(displayName.trim()) ||
-    Boolean(scheduleTitle.trim()) ||
-    Boolean(calculatedDateRangeLabel) ||
-    Boolean(avatarImage);
+  // The header parts that are on the canvas right now. Each one only renders when it
+  // has content, so a part that disappears can no longer stay selected.
+  const headerParts: HeaderPart[] = [
+    ...(avatarImage ? (["avatar"] as const) : []),
+    ...(displayName.trim() ? (["name"] as const) : []),
+    ...(scheduleTitle.trim() ? (["title"] as const) : []),
+    ...(calculatedDateRangeLabel ? (["dates"] as const) : []),
+  ];
+
+  const showHeader = headerParts.length > 0;
+
+  // Checked during render instead of in an effect: if the selected day, sticker, text box
+  // or header part was removed, this is simply null and nothing needs to be reset.
+  const activeSelection = clampSelection(selection, {
+    dayCount: schedule.length,
+    stickerIds: stickers.map((sticker) => sticker.id),
+    textBoxIds: textBoxes.map((textBox) => textBox.id),
+    headerParts,
+  });
+
+  // Convenience values for the old bottom-panel tabs, which edit one thing of each kind.
+  const selectedIndex =
+    activeSelection?.kind === "day" ? activeSelection.index : null;
+  const selectedDay = selectedIndex === null ? null : schedule[selectedIndex];
+  const selectedDayDate =
+    selectedIndex === null
+      ? ""
+      : getDateForDay(scheduleStartDate, selectedIndex);
+
+  const selectedSticker =
+    activeSelection?.kind === "sticker"
+      ? (stickers.find((sticker) => sticker.id === activeSelection.id) ?? null)
+      : null;
+
+  const selectedTextBox =
+    activeSelection?.kind === "text"
+      ? (textBoxes.find((textBox) => textBox.id === activeSelection.id) ?? null)
+      : null;
+
+  // True when this element is the selected one. Always false while exporting, so the
+  // violet outline never ends up in the PNG.
+  function isSelected(target: NonNullable<Selection>): boolean {
+    return (
+      !isExportingPng &&
+      activeSelection !== null &&
+      selectionKey(activeSelection) === selectionKey(target)
+    );
+  }
+
+  // Selects an element and opens the matching old bottom-panel tab, so the app keeps
+  // working until the floating toolbar replaces those tabs.
+  function selectElement(target: NonNullable<Selection>): void {
+    if (isExportingPng) {
+      return;
+    }
+
+    setSelection(target);
+
+    if (target.kind === "day") setActiveTab("day");
+    if (target.kind === "sticker") setActiveTab("stickers");
+    if (target.kind === "text") setActiveTab("text");
+    if (target.kind === "header") {
+      // The avatar is edited in the Images tab; the text parts in the Project tab.
+      setActiveTab(target.part === "avatar" ? "images" : "project");
+    }
+  }
+
+  // Props that make a canvas element focusable and selectable by pointer or keyboard.
+  // data-select-key lets later code find the element's on-screen box by its selection.
+  function selectableProps(
+    target: NonNullable<Selection>,
+    label: string,
+  ): SelectableProps {
+    return {
+      role: "button",
+      tabIndex: 0,
+      "aria-label": label,
+      "aria-pressed": isSelected(target),
+      "data-select-key": selectionKey(target),
+      onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+        // Stop here so the canvas below doesn't start a pan or clear the selection.
+        event.stopPropagation();
+        selectElement(target);
+      },
+      onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+        // Only react to keys pressed on this element itself, not on a child handle.
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          // Space would otherwise scroll the page.
+          event.preventDefault();
+          selectElement(target);
+        }
+      },
+    };
+  }
 
   useEffect(() => {
     if (!scheduleStartDate || !scheduleEndDate) {
@@ -697,11 +800,15 @@ export default function SchedulePage() {
           : createDefaultDayItem(label);
       }),
     );
-
-    setSelectedIndex((current) => Math.min(current, dayCount - 1));
+    // No selection reset needed here: activeSelection drops a day that no longer exists.
   }, [scheduleStartDate, scheduleEndDate]);
 
+  // The day helpers below edit the selected day and do nothing when no day is selected.
   function updateDay<K extends keyof DayItem>(field: K, value: DayItem[K]) {
+    if (selectedIndex === null) {
+      return;
+    }
+
     setSchedule((current) =>
       current.map((item, index) =>
         index === selectedIndex ? { ...item, [field]: value } : item,
@@ -727,6 +834,10 @@ export default function SchedulePage() {
   }
 
   function moveDay(action: "front" | "back" | "forward" | "backward") {
+    if (selectedIndex === null) {
+      return;
+    }
+
     const { min, max } = getGlobalZIndexBounds();
 
     setSchedule((current) =>
@@ -863,6 +974,10 @@ export default function SchedulePage() {
   const calculatedWidths = calculateDayWidths(schedule);
 
   function toggleSelectedDayWidthLock(locked: boolean) {
+    if (selectedIndex === null) {
+      return;
+    }
+
     if (locked) {
       const currentWidth = calculatedWidths[selectedIndex];
 
@@ -885,6 +1000,10 @@ export default function SchedulePage() {
   }
 
   function resetSelectedDayStyle() {
+    if (selectedIndex === null) {
+      return;
+    }
+
     setSchedule((current) =>
       current.map((item, index) =>
         index === selectedIndex
@@ -953,7 +1072,7 @@ export default function SchedulePage() {
       };
 
       setStickers((current) => [...current, newSticker]);
-      setSelectedStickerId(id);
+      setSelection({ kind: "sticker", id });
     });
   }
 
@@ -962,7 +1081,7 @@ export default function SchedulePage() {
       current.filter((sticker) => sticker.id !== stickerId),
     );
 
-    setSelectedStickerId((current) => (current === stickerId ? null : current));
+    // No selection reset needed: activeSelection drops a sticker that no longer exists.
   }
 
   function moveSticker(
@@ -1013,7 +1132,7 @@ export default function SchedulePage() {
     };
 
     setTextBoxes((current) => [...current, newTextBox]);
-    setSelectedTextBoxId(id);
+    setSelection({ kind: "text", id });
   }
 
   function updateTextBox<K extends keyof TextBox>(
@@ -1062,7 +1181,7 @@ export default function SchedulePage() {
       current.filter((textBox) => textBox.id !== textBoxId),
     );
 
-    setSelectedTextBoxId((current) => (current === textBoxId ? null : current));
+    // No selection reset needed: activeSelection drops a text box that no longer exists.
   }
 
   function beginCanvasPan(event: ReactPointerEvent<HTMLDivElement>) {
@@ -1097,8 +1216,7 @@ export default function SchedulePage() {
       offsetY: event.clientY - currentY,
     };
 
-    setSelectedStickerId(sticker.id);
-    setActiveTab("stickers");
+    selectElement({ kind: "sticker", id: sticker.id });
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -1132,8 +1250,7 @@ export default function SchedulePage() {
       startSize: sticker.size,
     };
 
-    setSelectedStickerId(sticker.id);
-    setActiveTab("stickers");
+    selectElement({ kind: "sticker", id: sticker.id });
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -1166,8 +1283,7 @@ export default function SchedulePage() {
       startRotation: sticker.rotation,
     };
 
-    setSelectedStickerId(sticker.id);
-    setActiveTab("stickers");
+    selectElement({ kind: "sticker", id: sticker.id });
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -1194,8 +1310,7 @@ export default function SchedulePage() {
       offsetY: event.clientY - currentY,
     };
 
-    setSelectedTextBoxId(textBox.id);
-    setActiveTab("text");
+    selectElement({ kind: "text", id: textBox.id });
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -1229,8 +1344,7 @@ export default function SchedulePage() {
       startWidth: textBox.width,
     };
 
-    setSelectedTextBoxId(textBox.id);
-    setActiveTab("text");
+    selectElement({ kind: "text", id: textBox.id });
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -1263,8 +1377,7 @@ export default function SchedulePage() {
       startRotation: textBox.rotation,
     };
 
-    setSelectedTextBoxId(textBox.id);
-    setActiveTab("text");
+    selectElement({ kind: "text", id: textBox.id });
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -1817,9 +1930,7 @@ export default function SchedulePage() {
       setStickers(parsed.stickers);
       setTextBoxes(parsed.textBoxes);
 
-      setSelectedIndex(0);
-      setSelectedStickerId(null);
-      setSelectedTextBoxId(null);
+      setSelection(null);
       setCopyStatus("");
 
       // The imported file is the new saved state once React has applied it.
@@ -1858,6 +1969,10 @@ export default function SchedulePage() {
   }
 
   function getSelectedDayDiscordText(): string | null {
+    if (!selectedDay) {
+      return null;
+    }
+
     const timestamp = createDiscordTimestamp(
       selectedDayDate,
       selectedDay.time,
@@ -1905,6 +2020,11 @@ export default function SchedulePage() {
   }
 
   async function copySelectedDayTimestamp() {
+    if (!selectedDay) {
+      setCopyStatus("Click a day on the canvas first");
+      return;
+    }
+
     const textToCopy = getSelectedDayDiscordText();
 
     if (!textToCopy) {
@@ -1939,7 +2059,10 @@ export default function SchedulePage() {
           </Link>
 
           <h1 className="text-sm font-bold tracking-wide text-slate-300">
-            Streamer Tools <span className="text-slate-600" aria-hidden="true">/</span>{" "}
+            Streamer Tools{" "}
+            <span className="text-slate-600" aria-hidden="true">
+              /
+            </span>{" "}
             <span className="text-white">Schedule Maker</span>
           </h1>
 
@@ -2077,8 +2200,8 @@ export default function SchedulePage() {
                 <div
                   ref={previewRef}
                   onPointerDown={(event) => {
-                    setSelectedStickerId(null);
-                    setSelectedTextBoxId(null);
+                    // Elements stop their own pointer-down, so reaching here means empty canvas.
+                    setSelection(null);
                     beginCanvasPan(event);
                   }}
                   className="absolute left-0 top-0 touch-none overflow-hidden rounded-[2rem] bg-transparent p-10 cursor-grab active:cursor-grabbing"
@@ -2112,7 +2235,10 @@ export default function SchedulePage() {
                       />
                     )}
 
-                    <PatternLayer pattern={backgroundPattern} themeText={theme.text} />
+                    <PatternLayer
+                      pattern={backgroundPattern}
+                      themeText={theme.text}
+                    />
 
                     {showHeader && (
                       <div
@@ -2124,7 +2250,16 @@ export default function SchedulePage() {
                       >
                         {avatarImage && (
                           <div
-                            className="shrink-0 overflow-hidden rounded-full border-4 border-white/80 bg-white/70 shadow-xl"
+                            {...selectableProps(
+                              { kind: "header", part: "avatar" },
+                              "Avatar",
+                            )}
+                            className={[
+                              "shrink-0 overflow-hidden rounded-full border-4 border-white/80 bg-white/70 shadow-xl",
+                              isSelected({ kind: "header", part: "avatar" })
+                                ? SELECTED_OUTLINE
+                                : "",
+                            ].join(" ")}
                             style={{
                               width: `${headerStyle.avatarSize}px`,
                               height: `${headerStyle.avatarSize}px`,
@@ -2147,7 +2282,16 @@ export default function SchedulePage() {
                         <div>
                           {scheduleTitle.trim() && (
                             <p
-                              className="font-black uppercase tracking-[0.35em] opacity-70"
+                              {...selectableProps(
+                                { kind: "header", part: "title" },
+                                "Schedule title",
+                              )}
+                              className={[
+                                "font-black uppercase tracking-[0.35em] opacity-70",
+                                isSelected({ kind: "header", part: "title" })
+                                  ? SELECTED_OUTLINE
+                                  : "",
+                              ].join(" ")}
                               style={{
                                 fontSize: `${headerStyle.eyebrowFontSize}px`,
                               }}
@@ -2158,7 +2302,16 @@ export default function SchedulePage() {
 
                           {displayName.trim() && (
                             <h2
-                              className="max-w-3xl font-black leading-tight"
+                              {...selectableProps(
+                                { kind: "header", part: "name" },
+                                "Streamer name",
+                              )}
+                              className={[
+                                "max-w-3xl font-black leading-tight",
+                                isSelected({ kind: "header", part: "name" })
+                                  ? SELECTED_OUTLINE
+                                  : "",
+                              ].join(" ")}
                               style={{
                                 marginTop: `${headerStyle.textGap}px`,
                                 fontSize: `${headerStyle.titleFontSize}px`,
@@ -2170,7 +2323,16 @@ export default function SchedulePage() {
 
                           {calculatedDateRangeLabel && (
                             <p
-                              className="font-semibold opacity-80"
+                              {...selectableProps(
+                                { kind: "header", part: "dates" },
+                                "Date range",
+                              )}
+                              className={[
+                                "font-semibold opacity-80",
+                                isSelected({ kind: "header", part: "dates" })
+                                  ? SELECTED_OUTLINE
+                                  : "",
+                              ].join(" ")}
                               style={{
                                 marginTop: `${headerStyle.textGap}px`,
                                 fontSize: `${headerStyle.dateFontSize}px`,
@@ -2205,21 +2367,14 @@ export default function SchedulePage() {
                             item={item}
                             layout={isGridLayout ? "grid" : "row"}
                             widthPercent={calculatedWidths[index]}
-                            selected={
-                              !isExportingPng && selectedIndex === index
-                            }
+                            selected={isSelected({ kind: "day", index })}
                             activeColor={theme.cardActive}
                             restColor={theme.cardRest}
                             textColor={theme.text}
-                            onSelect={() => {
-                              if (isExportingPng) {
-                                return;
-                              }
-
-                              setSelectedIndex(index);
-                              setSelectedStickerId(null);
-                              setActiveTab("day");
-                            }}
+                            selectProps={selectableProps(
+                              { kind: "day", index },
+                              `${dayLabel(item.day)} card`,
+                            )}
                           />
                         ))}
                       </div>
@@ -2229,21 +2384,14 @@ export default function SchedulePage() {
                           <ScheduleListRow
                             key={index}
                             item={item}
-                            selected={
-                              !isExportingPng && selectedIndex === index
-                            }
+                            selected={isSelected({ kind: "day", index })}
                             activeColor={theme.cardActive}
                             restColor={theme.cardRest}
                             textColor={theme.text}
-                            onSelect={() => {
-                              if (isExportingPng) {
-                                return;
-                              }
-
-                              setSelectedIndex(index);
-                              setSelectedStickerId(null);
-                              setActiveTab("day");
-                            }}
+                            selectProps={selectableProps(
+                              { kind: "day", index },
+                              `${dayLabel(item.day)} row`,
+                            )}
                           />
                         ))}
                       </div>
@@ -2252,8 +2400,10 @@ export default function SchedulePage() {
 
                   <div className="pointer-events-none absolute inset-0">
                     {stickers.map((sticker) => {
-                      const isSelected =
-                        !isExportingPng && selectedStickerId === sticker.id;
+                      const stickerSelected = isSelected({
+                        kind: "sticker",
+                        id: sticker.id,
+                      });
 
                       const stickerShadowXY = getShadowOffsetXY(
                         sticker.shadowOffset,
@@ -2262,8 +2412,13 @@ export default function SchedulePage() {
 
                       return (
                         <div
-                          role="button"
                           key={sticker.id}
+                          {...selectableProps(
+                            { kind: "sticker", id: sticker.id },
+                            `Sticker ${sticker.name}`,
+                          )}
+                          // Replaces the plain select from selectableProps: a sticker
+                          // selects itself and also starts a drag.
                           onPointerDown={(event) => {
                             if (isExportingPng) {
                               return;
@@ -2276,9 +2431,7 @@ export default function SchedulePage() {
                             isExportingPng
                               ? "cursor-default"
                               : "cursor-grab active:cursor-grabbing",
-                            isSelected
-                              ? "outline outline-2 outline-offset-4 outline-violet-400"
-                              : "",
+                            stickerSelected ? SELECTED_OUTLINE : "",
                           ].join(" ")}
                           style={{
                             left: `${sticker.x}%`,
@@ -2314,7 +2467,7 @@ export default function SchedulePage() {
                             />
                           </div>
 
-                          {isSelected && (
+                          {stickerSelected && (
                             <>
                               <span className="pointer-events-none absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 -translate-y-full bg-violet-400/70" />
 
@@ -2344,13 +2497,20 @@ export default function SchedulePage() {
 
                   <div className="pointer-events-none absolute inset-0">
                     {textBoxes.map((textBox) => {
-                      const isSelected =
-                        !isExportingPng && selectedTextBoxId === textBox.id;
+                      const textBoxSelected = isSelected({
+                        kind: "text",
+                        id: textBox.id,
+                      });
 
                       return (
                         <div
-                          role="button"
                           key={textBox.id}
+                          {...selectableProps(
+                            { kind: "text", id: textBox.id },
+                            `Text box ${textBox.text.trim() || "(empty)"}`,
+                          )}
+                          // Replaces the plain select from selectableProps: a text box
+                          // selects itself and also starts a drag.
                           onPointerDown={(event) => {
                             if (isExportingPng) {
                               return;
@@ -2363,9 +2523,7 @@ export default function SchedulePage() {
                             isExportingPng
                               ? "cursor-default"
                               : "cursor-grab active:cursor-grabbing",
-                            isSelected
-                              ? "outline outline-2 outline-offset-4 outline-violet-400"
-                              : "",
+                            textBoxSelected ? SELECTED_OUTLINE : "",
                           ].join(" ")}
                           style={{
                             left: `${textBox.x}%`,
@@ -2389,7 +2547,7 @@ export default function SchedulePage() {
                             {textBox.text || "Text box"}
                           </div>
 
-                          {isSelected && (
+                          {textBoxSelected && (
                             <>
                               <span className="pointer-events-none absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 -translate-y-full bg-violet-400/70" />
 
@@ -2848,10 +3006,12 @@ export default function SchedulePage() {
                           <button
                             type="button"
                             key={sticker.id}
-                            onClick={() => setSelectedStickerId(sticker.id)}
+                            onClick={() =>
+                              setSelection({ kind: "sticker", id: sticker.id })
+                            }
                             className={[
                               "aspect-square overflow-hidden rounded-xl border bg-slate-900 p-1 transition",
-                              selectedStickerId === sticker.id
+                              selectedSticker?.id === sticker.id
                                 ? "border-violet-400 ring-2 ring-violet-500/30"
                                 : "border-slate-700 hover:border-slate-500",
                             ].join(" ")}
@@ -2865,6 +3025,12 @@ export default function SchedulePage() {
                           </button>
                         ))}
                       </div>
+                    )}
+
+                    {!selectedSticker && stickers.length > 0 && (
+                      <p className="text-sm text-slate-400">
+                        Click a sticker on the canvas to edit it.
+                      </p>
                     )}
 
                     {selectedSticker && (
@@ -3068,10 +3234,12 @@ export default function SchedulePage() {
                           <button
                             type="button"
                             key={textBox.id}
-                            onClick={() => setSelectedTextBoxId(textBox.id)}
+                            onClick={() =>
+                              setSelection({ kind: "text", id: textBox.id })
+                            }
                             className={[
                               "block w-full truncate rounded-lg border px-3 py-2 text-left text-xs font-semibold transition",
-                              selectedTextBoxId === textBox.id
+                              selectedTextBox?.id === textBox.id
                                 ? "border-violet-400 bg-violet-500/10 text-violet-200"
                                 : "border-slate-700 text-slate-400 hover:border-slate-500",
                             ].join(" ")}
@@ -3080,6 +3248,12 @@ export default function SchedulePage() {
                           </button>
                         ))}
                       </div>
+                    )}
+
+                    {!selectedTextBox && textBoxes.length > 0 && (
+                      <p className="text-sm text-slate-400">
+                        Click a text box on the canvas to edit it.
+                      </p>
                     )}
 
                     {selectedTextBox && (
@@ -3257,7 +3431,7 @@ export default function SchedulePage() {
                           <button
                             type="button"
                             key={item.day}
-                            onClick={() => setSelectedIndex(index)}
+                            onClick={() => setSelection({ kind: "day", index })}
                             className={[
                               "rounded-lg py-2 text-xs font-black transition",
                               selectedIndex === index
@@ -3270,292 +3444,310 @@ export default function SchedulePage() {
                         ))}
                       </div>
                     </Panel>
-                    <Panel title={`${selectedDay.day} content`}>
-                      {selectedDayDate && (
-                        <div className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-3">
-                          <p className="text-xs font-semibold text-slate-400">
-                            Calculated date
-                          </p>
-
-                          <p className="mt-1 text-sm font-bold text-slate-200">
-                            {formatCalculatedDate(selectedDayDate)}
-                          </p>
-                        </div>
-                      )}
-
-                      <TextInput
-                        label="Stream title"
-                        value={selectedDay.title}
-                        onChange={(value) => updateDay("title", value)}
-                      />
-
-                      <TimeInput
-                        label="Stream time"
-                        value={selectedDay.time}
-                        onChange={(value) => updateDay("time", value)}
-                      />
-
-                      <TextArea
-                        label="Note"
-                        value={selectedDay.note}
-                        onChange={(value) => updateDay("note", value)}
-                      />
-
-                      <ToggleInput
-                        label="Stream day"
-                        checked={selectedDay.active}
-                        onChange={(checked) => updateDay("active", checked)}
-                      />
-                    </Panel>
-                    {customizationMode === "advanced" && (
+                    {selectedDay === null ? (
+                      <p className="text-sm text-slate-400">
+                        Click a day on the canvas to edit it.
+                      </p>
+                    ) : (
                       <>
-                        <Panel title={`${selectedDay.day} width`}>
-                          {scheduleLayout === "list" ? (
-                            <p className="text-xs leading-5 text-slate-400">
-                              List rows always span full width. Use the
-                              &quot;Height&quot; slider in card style to control
-                              how much vertical space this row takes relative to
-                              the others.
-                            </p>
-                          ) : isGridLayout ? (
-                            <p className="text-xs leading-5 text-slate-400">
-                              Width controls only apply to the 16:9 row layout.
-                              On {ASPECT_RATIOS[aspectRatioId].label}, cards
-                              fill their grid cell evenly — use the card style
-                              panel for height instead.
-                            </p>
-                          ) : (
-                            <>
-                              <ToggleInput
-                                label="Lock card width"
-                                checked={selectedDay.widthLocked}
-                                onChange={toggleSelectedDayWidthLock}
+                        <Panel title={`${selectedDay.day} content`}>
+                          {selectedDayDate && (
+                            <div className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-3">
+                              <p className="text-xs font-semibold text-slate-400">
+                                Calculated date
+                              </p>
+
+                              <p className="mt-1 text-sm font-bold text-slate-200">
+                                {formatCalculatedDate(selectedDayDate)}
+                              </p>
+                            </div>
+                          )}
+
+                          <TextInput
+                            label="Stream title"
+                            value={selectedDay.title}
+                            onChange={(value) => updateDay("title", value)}
+                          />
+
+                          <TimeInput
+                            label="Stream time"
+                            value={selectedDay.time}
+                            onChange={(value) => updateDay("time", value)}
+                          />
+
+                          <TextArea
+                            label="Note"
+                            value={selectedDay.note}
+                            onChange={(value) => updateDay("note", value)}
+                          />
+
+                          <ToggleInput
+                            label="Stream day"
+                            checked={selectedDay.active}
+                            onChange={(checked) => updateDay("active", checked)}
+                          />
+                        </Panel>
+                        {customizationMode === "advanced" && (
+                          <>
+                            <Panel title={`${selectedDay.day} width`}>
+                              {scheduleLayout === "list" ? (
+                                <p className="text-xs leading-5 text-slate-400">
+                                  List rows always span full width. Use the
+                                  &quot;Height&quot; slider in card style to
+                                  control how much vertical space this row takes
+                                  relative to the others.
+                                </p>
+                              ) : isGridLayout ? (
+                                <p className="text-xs leading-5 text-slate-400">
+                                  Width controls only apply to the 16:9 row
+                                  layout. On{" "}
+                                  {ASPECT_RATIOS[aspectRatioId].label}, cards
+                                  fill their grid cell evenly — use the card
+                                  style panel for height instead.
+                                </p>
+                              ) : (
+                                <>
+                                  <ToggleInput
+                                    label="Lock card width"
+                                    checked={selectedDay.widthLocked}
+                                    onChange={toggleSelectedDayWidthLock}
+                                  />
+
+                                  {selectedDay.widthLocked ? (
+                                    <RangeInput
+                                      label="Locked width"
+                                      value={Number(
+                                        selectedDay.lockedWidthPercent.toFixed(
+                                          1,
+                                        ),
+                                      )}
+                                      min={5}
+                                      max={50}
+                                      step={0.5}
+                                      suffix="%"
+                                      onChange={(value) =>
+                                        updateDay("lockedWidthPercent", value)
+                                      }
+                                    />
+                                  ) : (
+                                    <RangeInput
+                                      label="Relative width"
+                                      value={selectedDay.widthWeight}
+                                      min={0.5}
+                                      max={2.5}
+                                      step={0.1}
+                                      onChange={(value) =>
+                                        updateDay("widthWeight", value)
+                                      }
+                                    />
+                                  )}
+
+                                  <p className="text-xs leading-5 text-slate-400">
+                                    Locked cards keep their width while unlocked
+                                    cards divide the remaining space.
+                                  </p>
+                                </>
+                              )}
+                            </Panel>
+                            <Panel title={`${selectedDay.day} typography`}>
+                              <RangeInput
+                                label="Weekday size"
+                                value={selectedDay.dayFontSize}
+                                min={10}
+                                max={36}
+                                suffix="px"
+                                onChange={(value) =>
+                                  updateDay("dayFontSize", value)
+                                }
                               />
 
-                              {selectedDay.widthLocked ? (
-                                <RangeInput
-                                  label="Locked width"
-                                  value={Number(
-                                    selectedDay.lockedWidthPercent.toFixed(1),
-                                  )}
-                                  min={5}
-                                  max={50}
-                                  step={0.5}
-                                  suffix="%"
-                                  onChange={(value) =>
-                                    updateDay("lockedWidthPercent", value)
-                                  }
-                                />
+                              <RangeInput
+                                label="Title size"
+                                value={selectedDay.titleFontSize}
+                                min={12}
+                                max={54}
+                                suffix="px"
+                                onChange={(value) =>
+                                  updateDay("titleFontSize", value)
+                                }
+                              />
+
+                              <RangeInput
+                                label="Time size"
+                                value={selectedDay.timeFontSize}
+                                min={10}
+                                max={40}
+                                suffix="px"
+                                onChange={(value) =>
+                                  updateDay("timeFontSize", value)
+                                }
+                              />
+
+                              <RangeInput
+                                label="Note size"
+                                value={selectedDay.noteFontSize}
+                                min={10}
+                                max={36}
+                                suffix="px"
+                                onChange={(value) =>
+                                  updateDay("noteFontSize", value)
+                                }
+                              />
+                            </Panel>
+                            <Panel title={`${selectedDay.day} card style`}>
+                              {scheduleLayout === "list" ? (
+                                <>
+                                  <RangeInput
+                                    label="Height (relative weight)"
+                                    value={selectedDay.height}
+                                    min={10}
+                                    max={400}
+                                    onChange={(value) =>
+                                      updateDay("height", value)
+                                    }
+                                  />
+
+                                  <p className="text-xs leading-5 text-slate-400">
+                                    Rows are sized relative to each other's
+                                    weight — a row with 200 takes up twice the
+                                    space of a row with 100.
+                                  </p>
+                                </>
                               ) : (
                                 <RangeInput
-                                  label="Relative width"
-                                  value={selectedDay.widthWeight}
-                                  min={0.5}
-                                  max={2.5}
-                                  step={0.1}
+                                  label="Height"
+                                  value={selectedDay.height}
+                                  min={40}
+                                  max={100}
+                                  suffix="%"
                                   onChange={(value) =>
-                                    updateDay("widthWeight", value)
+                                    updateDay("height", value)
                                   }
                                 />
                               )}
 
-                              <p className="text-xs leading-5 text-slate-400">
-                                Locked cards keep their width while unlocked
-                                cards divide the remaining space.
-                              </p>
-                            </>
-                          )}
-                        </Panel>
-                        <Panel title={`${selectedDay.day} typography`}>
-                          <RangeInput
-                            label="Weekday size"
-                            value={selectedDay.dayFontSize}
-                            min={10}
-                            max={36}
-                            suffix="px"
-                            onChange={(value) =>
-                              updateDay("dayFontSize", value)
-                            }
-                          />
-
-                          <RangeInput
-                            label="Title size"
-                            value={selectedDay.titleFontSize}
-                            min={12}
-                            max={54}
-                            suffix="px"
-                            onChange={(value) =>
-                              updateDay("titleFontSize", value)
-                            }
-                          />
-
-                          <RangeInput
-                            label="Time size"
-                            value={selectedDay.timeFontSize}
-                            min={10}
-                            max={40}
-                            suffix="px"
-                            onChange={(value) =>
-                              updateDay("timeFontSize", value)
-                            }
-                          />
-
-                          <RangeInput
-                            label="Note size"
-                            value={selectedDay.noteFontSize}
-                            min={10}
-                            max={36}
-                            suffix="px"
-                            onChange={(value) =>
-                              updateDay("noteFontSize", value)
-                            }
-                          />
-                        </Panel>
-                        <Panel title={`${selectedDay.day} card style`}>
-                          {scheduleLayout === "list" ? (
-                            <>
                               <RangeInput
-                                label="Height (relative weight)"
-                                value={selectedDay.height}
-                                min={10}
-                                max={400}
-                                onChange={(value) => updateDay("height", value)}
+                                label="Rotation"
+                                value={selectedDay.rotation}
+                                min={-12}
+                                max={12}
+                                suffix="°"
+                                onChange={(value) =>
+                                  updateDay("rotation", value)
+                                }
                               />
 
-                              <p className="text-xs leading-5 text-slate-400">
-                                Rows are sized relative to each other's weight —
-                                a row with 200 takes up twice the space of a row
-                                with 100.
-                              </p>
-                            </>
-                          ) : (
-                            <RangeInput
-                              label="Height"
-                              value={selectedDay.height}
-                              min={40}
-                              max={100}
-                              suffix="%"
-                              onChange={(value) => updateDay("height", value)}
-                            />
-                          )}
+                              <RangeInput
+                                label="Corner radius"
+                                value={selectedDay.borderRadius}
+                                min={0}
+                                max={60}
+                                suffix="px"
+                                onChange={(value) =>
+                                  updateDay("borderRadius", value)
+                                }
+                              />
 
-                          <RangeInput
-                            label="Rotation"
-                            value={selectedDay.rotation}
-                            min={-12}
-                            max={12}
-                            suffix="°"
-                            onChange={(value) => updateDay("rotation", value)}
-                          />
+                              <RangeInput
+                                label="Outline width"
+                                value={selectedDay.borderWidth}
+                                min={0}
+                                max={12}
+                                suffix="px"
+                                onChange={(value) =>
+                                  updateDay("borderWidth", value)
+                                }
+                              />
 
-                          <RangeInput
-                            label="Corner radius"
-                            value={selectedDay.borderRadius}
-                            min={0}
-                            max={60}
-                            suffix="px"
-                            onChange={(value) =>
-                              updateDay("borderRadius", value)
-                            }
-                          />
+                              <ColorInput
+                                label="Outline color"
+                                value={selectedDay.borderColor}
+                                onChange={(value) =>
+                                  updateDay("borderColor", value)
+                                }
+                              />
 
-                          <RangeInput
-                            label="Outline width"
-                            value={selectedDay.borderWidth}
-                            min={0}
-                            max={12}
-                            suffix="px"
-                            onChange={(value) =>
-                              updateDay("borderWidth", value)
-                            }
-                          />
+                              <RangeInput
+                                label="Shadow offset"
+                                value={selectedDay.shadowOffset}
+                                min={0}
+                                max={30}
+                                suffix="px"
+                                onChange={(value) =>
+                                  updateDay("shadowOffset", value)
+                                }
+                              />
 
-                          <ColorInput
-                            label="Outline color"
-                            value={selectedDay.borderColor}
-                            onChange={(value) =>
-                              updateDay("borderColor", value)
-                            }
-                          />
+                              <div className="space-y-1">
+                                <p className="text-xs font-semibold text-slate-400">
+                                  Shadow direction
+                                </p>
 
-                          <RangeInput
-                            label="Shadow offset"
-                            value={selectedDay.shadowOffset}
-                            min={0}
-                            max={30}
-                            suffix="px"
-                            onChange={(value) =>
-                              updateDay("shadowOffset", value)
-                            }
-                          />
+                                <div className="grid grid-cols-2 gap-2">
+                                  {SHADOW_DIRECTIONS.map((direction) => (
+                                    <SmallButton
+                                      key={direction}
+                                      active={
+                                        selectedDay.shadowDirection ===
+                                        direction
+                                      }
+                                      onClick={() =>
+                                        updateDay("shadowDirection", direction)
+                                      }
+                                    >
+                                      {direction.replace("-", " ")}
+                                    </SmallButton>
+                                  ))}
+                                </div>
+                              </div>
 
-                          <div className="space-y-1">
-                            <p className="text-xs font-semibold text-slate-400">
-                              Shadow direction
-                            </p>
+                              <div className="space-y-1">
+                                <p className="text-xs font-semibold text-slate-400">
+                                  Layering
+                                </p>
 
-                            <div className="grid grid-cols-2 gap-2">
-                              {SHADOW_DIRECTIONS.map((direction) => (
-                                <SmallButton
-                                  key={direction}
-                                  active={
-                                    selectedDay.shadowDirection === direction
-                                  }
-                                  onClick={() =>
-                                    updateDay("shadowDirection", direction)
-                                  }
-                                >
-                                  {direction.replace("-", " ")}
-                                </SmallButton>
-                              ))}
-                            </div>
-                          </div>
+                                <p className="text-xs leading-5 text-slate-400">
+                                  Send a day back to let stickers or text peek
+                                  out in front of it, or above.
+                                </p>
 
-                          <div className="space-y-1">
-                            <p className="text-xs font-semibold text-slate-400">
-                              Layering
-                            </p>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <SmallButton
+                                    active={false}
+                                    onClick={() => moveDay("front")}
+                                  >
+                                    Bring to front
+                                  </SmallButton>
 
-                            <p className="text-xs leading-5 text-slate-400">
-                              Send a day back to let stickers or text peek out
-                              in front of it, or above.
-                            </p>
+                                  <SmallButton
+                                    active={false}
+                                    onClick={() => moveDay("back")}
+                                  >
+                                    Send to back
+                                  </SmallButton>
 
-                            <div className="grid grid-cols-2 gap-2">
-                              <SmallButton
-                                active={false}
-                                onClick={() => moveDay("front")}
-                              >
-                                Bring to front
-                              </SmallButton>
+                                  <SmallButton
+                                    active={false}
+                                    onClick={() => moveDay("forward")}
+                                  >
+                                    Forward
+                                  </SmallButton>
 
-                              <SmallButton
-                                active={false}
-                                onClick={() => moveDay("back")}
-                              >
-                                Send to back
-                              </SmallButton>
+                                  <SmallButton
+                                    active={false}
+                                    onClick={() => moveDay("backward")}
+                                  >
+                                    Backward
+                                  </SmallButton>
+                                </div>
+                              </div>
 
-                              <SmallButton
-                                active={false}
-                                onClick={() => moveDay("forward")}
-                              >
-                                Forward
-                              </SmallButton>
-
-                              <SmallButton
-                                active={false}
-                                onClick={() => moveDay("backward")}
-                              >
-                                Backward
-                              </SmallButton>
-                            </div>
-                          </div>
-
-                          <SecondaryButton onClick={resetSelectedDayStyle}>
-                            Reset card style
-                          </SecondaryButton>
-                        </Panel>
+                              <SecondaryButton onClick={resetSelectedDayStyle}>
+                                Reset card style
+                              </SecondaryButton>
+                            </Panel>
+                          </>
+                        )}
                       </>
                     )}
                   </>
@@ -3686,14 +3878,15 @@ function ScheduleListRow({
   activeColor,
   restColor,
   textColor,
-  onSelect,
+  selectProps,
 }: {
   item: DayItem;
   selected: boolean;
   activeColor: string;
   restColor: string;
   textColor: string;
-  onSelect: () => void;
+  // Focus, keyboard and pointer handling from the page, so selection lives in one place.
+  selectProps: SelectableProps;
 }) {
   const shadowXY = getShadowOffsetXY(item.shadowOffset, item.shadowDirection);
 
@@ -3708,17 +3901,11 @@ function ScheduleListRow({
         zIndex: item.zIndex,
       }}
     >
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onSelect();
-        }}
+      <div
+        {...selectProps}
         className={[
-          "flex h-full w-full items-center gap-4 overflow-hidden px-5 py-2 text-left transition",
-          selected
-            ? "ring-2 ring-violet-400 ring-offset-4 ring-offset-transparent"
-            : "",
+          "flex h-full w-full cursor-pointer items-center gap-4 overflow-hidden px-5 py-2 text-left transition",
+          selected ? SELECTED_OUTLINE : "",
         ].join(" ")}
         style={{
           background: item.active ? activeColor : restColor,
@@ -3772,7 +3959,7 @@ function ScheduleListRow({
             <span className="opacity-50">—</span>
           )}
         </span>
-      </button>
+      </div>
     </div>
   );
 }
@@ -3785,7 +3972,7 @@ function ScheduleCard({
   activeColor,
   restColor,
   textColor,
-  onSelect,
+  selectProps,
 }: {
   item: DayItem;
   layout: "row" | "grid";
@@ -3794,7 +3981,8 @@ function ScheduleCard({
   activeColor: string;
   restColor: string;
   textColor: string;
-  onSelect: () => void;
+  // Focus, keyboard and pointer handling from the page, so selection lives in one place.
+  selectProps: SelectableProps;
 }) {
   const shadowXY = getShadowOffsetXY(item.shadowOffset, item.shadowDirection);
 
@@ -3812,17 +4000,11 @@ function ScheduleCard({
         zIndex: item.zIndex,
       }}
     >
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onSelect();
-        }}
+      <div
+        {...selectProps}
         className={[
-          "relative h-full w-full overflow-hidden p-6 text-left transition",
-          selected
-            ? "ring-2 ring-violet-400 ring-offset-4 ring-offset-transparent"
-            : "",
+          "relative h-full w-full cursor-pointer overflow-hidden p-6 text-left transition",
+          selected ? SELECTED_OUTLINE : "",
         ].join(" ")}
         style={{
           background: item.active ? activeColor : restColor,
@@ -3882,7 +4064,7 @@ function ScheduleCard({
             {item.note}
           </p>
         )}
-      </button>
+      </div>
     </div>
   );
 }
@@ -3917,4 +4099,3 @@ function TemplateNotice({
     </div>
   );
 }
-
