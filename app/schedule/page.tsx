@@ -19,6 +19,7 @@ import {
 } from "../../lib/discordTimestamp";
 import { DEFAULT_PATTERN, type BackgroundPattern } from "../../lib/patterns";
 import { PatternControls, PatternLayer } from "./components/PatternLayer";
+import { FloatingToolbar } from "./components/FloatingToolbar";
 import {
   ColorInput,
   DateInput,
@@ -322,6 +323,14 @@ type SelectableProps = {
   "data-select-key": string;
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
+};
+
+// Screen-reader and toolbar names for the header parts.
+const HEADER_PART_LABELS: Record<HeaderPart, string> = {
+  avatar: "Avatar",
+  name: "Streamer name",
+  title: "Schedule title",
+  dates: "Date range",
 };
 
 // Turns a stored day label like "WED" into "Wed" for screen-reader labels.
@@ -697,6 +706,15 @@ export default function SchedulePage() {
     headerParts,
   });
 
+  // If clamping dropped the selection, clear the stored one too. Otherwise it would come
+  // back by itself when the element reappears (shorten the date range so the selected
+  // day disappears, lengthen it again → the day was selected again, toolbar and all).
+  // Setting state during render is React's supported way to adjust state from props/state;
+  // React re-renders straight away before painting, so no effect is needed.
+  if (selection !== null && activeSelection === null) {
+    setSelection(null);
+  }
+
   // Convenience values for the old bottom-panel tabs, which edit one thing of each kind.
   const selectedIndex =
     activeSelection?.kind === "day" ? activeSelection.index : null;
@@ -744,16 +762,35 @@ export default function SchedulePage() {
     }
   }
 
+  // The human-readable name of a canvas element. Used as its aria-label and as the
+  // floating toolbar's label, so both always say the same thing.
+  function selectionLabel(target: NonNullable<Selection>): string {
+    switch (target.kind) {
+      case "day": {
+        const day = schedule[target.index]?.day ?? "";
+        // Card layouts call each day a card; the list layout calls it a row.
+        return `${dayLabel(day)} ${scheduleLayout === "cards" ? "card" : "row"}`;
+      }
+      case "sticker": {
+        const sticker = stickers.find((item) => item.id === target.id);
+        return `Sticker ${sticker?.name ?? ""}`;
+      }
+      case "text": {
+        const textBox = textBoxes.find((item) => item.id === target.id);
+        return `Text box ${textBox?.text.trim() || "(empty)"}`;
+      }
+      case "header":
+        return HEADER_PART_LABELS[target.part];
+    }
+  }
+
   // Props that make a canvas element focusable and selectable by pointer or keyboard.
   // data-select-key lets later code find the element's on-screen box by its selection.
-  function selectableProps(
-    target: NonNullable<Selection>,
-    label: string,
-  ): SelectableProps {
+  function selectableProps(target: NonNullable<Selection>): SelectableProps {
     return {
       role: "button",
       tabIndex: 0,
-      "aria-label": label,
+      "aria-label": selectionLabel(target),
       "aria-pressed": isSelected(target),
       "data-select-key": selectionKey(target),
       onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
@@ -2137,7 +2174,7 @@ export default function SchedulePage() {
 
       <section className="relative min-h-0 flex-1 overflow-hidden">
         <div className="absolute inset-x-0 top-0 flex h-[80vh] flex-col">
-          <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_top_right,#312e81,transparent_35%),radial-gradient(circle_at_bottom_left,#155e75,transparent_35%),#020617] p-6">
+          <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_top_right,#312e81,transparent_35%),radial-gradient(circle_at_bottom_left,#155e75,transparent_35%),#020617] p-6">
             <div className="mb-3 flex shrink-0 items-center justify-between">
               <div className="flex items-center gap-3">
                 <div
@@ -2250,10 +2287,10 @@ export default function SchedulePage() {
                       >
                         {avatarImage && (
                           <div
-                            {...selectableProps(
-                              { kind: "header", part: "avatar" },
-                              "Avatar",
-                            )}
+                            {...selectableProps({
+                              kind: "header",
+                              part: "avatar",
+                            })}
                             className={[
                               "shrink-0 overflow-hidden rounded-full border-4 border-white/80 bg-white/70 shadow-xl",
                               isSelected({ kind: "header", part: "avatar" })
@@ -2282,10 +2319,10 @@ export default function SchedulePage() {
                         <div>
                           {scheduleTitle.trim() && (
                             <p
-                              {...selectableProps(
-                                { kind: "header", part: "title" },
-                                "Schedule title",
-                              )}
+                              {...selectableProps({
+                                kind: "header",
+                                part: "title",
+                              })}
                               className={[
                                 "font-black uppercase tracking-[0.35em] opacity-70",
                                 isSelected({ kind: "header", part: "title" })
@@ -2302,10 +2339,10 @@ export default function SchedulePage() {
 
                           {displayName.trim() && (
                             <h2
-                              {...selectableProps(
-                                { kind: "header", part: "name" },
-                                "Streamer name",
-                              )}
+                              {...selectableProps({
+                                kind: "header",
+                                part: "name",
+                              })}
                               className={[
                                 "max-w-3xl font-black leading-tight",
                                 isSelected({ kind: "header", part: "name" })
@@ -2323,10 +2360,10 @@ export default function SchedulePage() {
 
                           {calculatedDateRangeLabel && (
                             <p
-                              {...selectableProps(
-                                { kind: "header", part: "dates" },
-                                "Date range",
-                              )}
+                              {...selectableProps({
+                                kind: "header",
+                                part: "dates",
+                              })}
                               className={[
                                 "font-semibold opacity-80",
                                 isSelected({ kind: "header", part: "dates" })
@@ -2371,10 +2408,10 @@ export default function SchedulePage() {
                             activeColor={theme.cardActive}
                             restColor={theme.cardRest}
                             textColor={theme.text}
-                            selectProps={selectableProps(
-                              { kind: "day", index },
-                              `${dayLabel(item.day)} card`,
-                            )}
+                            selectProps={selectableProps({
+                              kind: "day",
+                              index,
+                            })}
                           />
                         ))}
                       </div>
@@ -2388,10 +2425,10 @@ export default function SchedulePage() {
                             activeColor={theme.cardActive}
                             restColor={theme.cardRest}
                             textColor={theme.text}
-                            selectProps={selectableProps(
-                              { kind: "day", index },
-                              `${dayLabel(item.day)} row`,
-                            )}
+                            selectProps={selectableProps({
+                              kind: "day",
+                              index,
+                            })}
                           />
                         ))}
                       </div>
@@ -2413,10 +2450,10 @@ export default function SchedulePage() {
                       return (
                         <div
                           key={sticker.id}
-                          {...selectableProps(
-                            { kind: "sticker", id: sticker.id },
-                            `Sticker ${sticker.name}`,
-                          )}
+                          {...selectableProps({
+                            kind: "sticker",
+                            id: sticker.id,
+                          })}
                           // Replaces the plain select from selectableProps: a sticker
                           // selects itself and also starts a drag.
                           onPointerDown={(event) => {
@@ -2505,10 +2542,10 @@ export default function SchedulePage() {
                       return (
                         <div
                           key={textBox.id}
-                          {...selectableProps(
-                            { kind: "text", id: textBox.id },
-                            `Text box ${textBox.text.trim() || "(empty)"}`,
-                          )}
+                          {...selectableProps({
+                            kind: "text",
+                            id: textBox.id,
+                          })}
                           // Replaces the plain select from selectableProps: a text box
                           // selects itself and also starts a drag.
                           onPointerDown={(event) => {
@@ -2577,6 +2614,29 @@ export default function SchedulePage() {
                 </div>
               </div>
             </div>
+
+            {/* Outside the scaled canvas and the preview area (see FloatingToolbar), placed
+                relative to this `relative` section. Not mounted during PNG export. */}
+            {activeSelection !== null && !isExportingPng && (
+              <FloatingToolbar
+                // A new key per element resets the toolbar (closes "More") on reselect.
+                key={selectionKey(activeSelection)}
+                anchorKey={selectionKey(activeSelection)}
+                containerRef={previewAreaRef}
+                label={selectionLabel(activeSelection)}
+                more={
+                  <p className="text-xs text-slate-400">
+                    More settings for {selectionLabel(activeSelection)}
+                  </p>
+                }
+                onClose={() => setSelection(null)}
+              >
+                {/* Placeholder until Task 7 adds the real controls per element type. */}
+                <span className="px-1 text-xs font-semibold text-slate-300">
+                  {selectionLabel(activeSelection)}
+                </span>
+              </FloatingToolbar>
+            )}
           </section>
         </div>
 
