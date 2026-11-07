@@ -68,6 +68,12 @@ export default function Home() {
             );
           })}
         </div>
+
+        <footer className="mt-16 text-sm text-slate-400">
+          <Link href="/privacy" className="underline hover:text-slate-200">
+            Privacy
+          </Link>
+        </footer>
       </section>
     </main>
   );

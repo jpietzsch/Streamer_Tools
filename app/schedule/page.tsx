@@ -2149,6 +2149,62 @@ export default function SchedulePage() {
     };
   }
 
+  // --- Unsaved changes ---
+  // The editor keeps nothing after the tab closes, so it compares the current state with
+  // the last exported or imported template and warns before that work would be lost.
+  const savedSnapshotRef = useRef<string | null>(null);
+  // True means: take a fresh "saved" snapshot after the next render (first load, imports).
+  const resnapshotRef = useRef(true);
+  const hasUnsavedChangesRef = useRef<() => boolean>(() => false);
+
+  function createSnapshot(template: ScheduleTemplateV1): string {
+    // exportedAt changes on every call, so it is blanked out before comparing.
+    return JSON.stringify({ ...template, exportedAt: "" });
+  }
+
+  function hasUnsavedChanges(): boolean {
+    return createSnapshot(createCurrentTemplate()) !== savedSnapshotRef.current;
+  }
+
+  // Runs after every render, so the unload handler below always sees the latest state.
+  useEffect(() => {
+    hasUnsavedChangesRef.current = hasUnsavedChanges;
+
+    if (resnapshotRef.current) {
+      savedSnapshotRef.current = createSnapshot(createCurrentTemplate());
+      resnapshotRef.current = false;
+    }
+  });
+
+  // Closing or reloading the tab: let the browser show its "Leave site?" prompt.
+  useEffect(() => {
+    function warnIfUnsaved(event: BeforeUnloadEvent) {
+      if (!hasUnsavedChangesRef.current()) {
+        return;
+      }
+
+      event.preventDefault();
+      // Older browsers only show the prompt when returnValue is set.
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", warnIfUnsaved);
+
+    return () => window.removeEventListener("beforeunload", warnIfUnsaved);
+  }, []);
+
+  // Links inside the app don't fire beforeunload, so they ask here instead.
+  function confirmLeave(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (
+      hasUnsavedChanges() &&
+      !window.confirm(
+        "You have changes that aren't exported yet. Leave anyway and lose them?",
+      )
+    ) {
+      event.preventDefault();
+    }
+  }
+
   function exportTemplate() {
     try {
       const template = createCurrentTemplate();
@@ -2168,6 +2224,9 @@ export default function SchedulePage() {
       anchor.remove();
 
       URL.revokeObjectURL(objectUrl);
+
+      // The current state is now saved in a file, so leaving the page is safe.
+      savedSnapshotRef.current = createSnapshot(template);
 
       const sizeInMegabytes = blob.size / 1024 / 1024;
 
@@ -2281,6 +2340,9 @@ export default function SchedulePage() {
       setSelectedTextBoxId(null);
       setCopyStatus("");
 
+      // The imported file is the new saved state once React has applied it.
+      resnapshotRef.current = true;
+
       setTemplateMessage({
         type: "success",
         text: `Loaded template “${file.name}” successfully.`,
@@ -2388,15 +2450,24 @@ export default function SchedulePage() {
         <div className="flex items-center gap-3">
           <Link
             href="/"
+            onClick={confirmLeave}
             className="rounded-full border border-slate-700 px-3 py-1 text-sm text-slate-300 transition hover:border-violet-400 hover:text-white"
           >
             ← Back
           </Link>
 
-          <p className="text-sm font-bold tracking-wide text-slate-300">
-            Streamer Tools <span className="text-slate-600">/</span>{" "}
+          <h1 className="text-sm font-bold tracking-wide text-slate-300">
+            Streamer Tools <span className="text-slate-600" aria-hidden="true">/</span>{" "}
             <span className="text-white">Schedule Maker</span>
-          </p>
+          </h1>
+
+          <Link
+            href="/privacy"
+            onClick={confirmLeave}
+            className="text-xs text-slate-400 underline hover:text-slate-200"
+          >
+            Privacy
+          </Link>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -2435,6 +2506,7 @@ export default function SchedulePage() {
                 key={option.value}
                 type="button"
                 onClick={() => setExportQuality(option.value)}
+                aria-pressed={exportQuality === option.value}
                 className={[
                   "rounded-full px-3 py-1.5 text-xs font-bold transition",
                   exportQuality === option.value
@@ -2471,6 +2543,7 @@ export default function SchedulePage() {
                   <button
                     type="button"
                     onClick={() => setCustomizationMode("simple")}
+                    aria-pressed={customizationMode === "simple"}
                     className={[
                       "rounded-full px-3 py-1 text-xs font-bold transition",
                       customizationMode === "simple"
@@ -2484,6 +2557,7 @@ export default function SchedulePage() {
                   <button
                     type="button"
                     onClick={() => setCustomizationMode("advanced")}
+                    aria-pressed={customizationMode === "advanced"}
                     className={[
                       "rounded-full px-3 py-1 text-xs font-bold transition",
                       customizationMode === "advanced"
@@ -2500,7 +2574,7 @@ export default function SchedulePage() {
                 </p>
               </div>
 
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-400">
                 {canvasWidth} × {canvasHeight} canvas ·{" "}
                 {Math.round(previewScale * 100)}% · scroll to zoom
               </p>
@@ -2878,11 +2952,19 @@ export default function SchedulePage() {
             <div className="h-1 w-12 rounded-full bg-slate-600" />
           </div>
 
-          <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-800 px-4 py-2">
+          <div
+            role="tablist"
+            aria-label="Editor sections"
+            className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-800 px-4 py-2"
+          >
             {TABS.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
+                role="tab"
+                id={`tab-${tab.id}`}
+                aria-selected={activeTab === tab.id}
+                aria-controls="editor-panel"
                 onClick={() => setActiveTab(tab.id)}
                 className={[
                   "flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition",
@@ -2895,9 +2977,14 @@ export default function SchedulePage() {
                 {tab.label}
               </button>
             ))}
-          </nav>
+          </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div
+            id="editor-panel"
+            role="tabpanel"
+            aria-labelledby={`tab-${activeTab}`}
+            className="min-h-0 flex-1 overflow-y-auto"
+          >
             <div className="p-5">
               {templateMessage && (
                 <TemplateNotice
@@ -2917,7 +3004,7 @@ export default function SchedulePage() {
                 {activeTab === "project" && (
                   <>
                     <Panel title="Template">
-                      <p className="text-xs leading-5 text-slate-500">
+                      <p className="text-xs leading-5 text-slate-400">
                         Templates include all text, styles, dates, uploaded
                         images and sticker positions.
                       </p>
@@ -2939,7 +3026,7 @@ export default function SchedulePage() {
                           : "Import template"}
                       </SecondaryButton>
 
-                      <p className="text-xs leading-5 text-slate-600">
+                      <p className="text-xs leading-5 text-slate-400">
                         Images are embedded in the JSON file. Large images will
                         produce a larger template.
                       </p>
@@ -2987,7 +3074,7 @@ export default function SchedulePage() {
 
                       {calculatedDateRangeLabel && (
                         <div className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-3">
-                          <p className="text-xs font-semibold text-slate-500">
+                          <p className="text-xs font-semibold text-slate-400">
                             Generated range · {schedule.length} day
                             {schedule.length === 1 ? "" : "s"}
                           </p>
@@ -3000,7 +3087,7 @@ export default function SchedulePage() {
                     </Panel>
 
                     <Panel title="Canvas">
-                      <p className="text-xs leading-5 text-slate-500">
+                      <p className="text-xs leading-5 text-slate-400">
                         Choose an aspect ratio for the exported image.
                       </p>
 
@@ -3018,7 +3105,7 @@ export default function SchedulePage() {
                         )}
                       </div>
 
-                      <p className="text-xs leading-5 text-slate-500">
+                      <p className="text-xs leading-5 text-slate-400">
                         Choose how the schedule itself is displayed.
                       </p>
 
@@ -3269,7 +3356,7 @@ export default function SchedulePage() {
                   <Panel title="Stickers">
                     <FileInput label="Upload sticker" onChange={addSticker} />
 
-                    <p className="text-xs leading-5 text-slate-500">
+                    <p className="text-xs leading-5 text-slate-400">
                       Transparent PNG or WebP files work best. Drag stickers
                       directly on the preview.
                     </p>
@@ -3395,7 +3482,7 @@ export default function SchedulePage() {
                             />
 
                             <div className="space-y-1">
-                              <p className="text-xs font-semibold text-slate-500">
+                              <p className="text-xs font-semibold text-slate-400">
                                 Shadow direction
                               </p>
 
@@ -3422,7 +3509,7 @@ export default function SchedulePage() {
                             </div>
 
                             <div className="space-y-1">
-                              <p className="text-xs font-semibold text-slate-500">
+                              <p className="text-xs font-semibold text-slate-400">
                                 Layering
                               </p>
 
@@ -3489,7 +3576,7 @@ export default function SchedulePage() {
                       + Add text box
                     </button>
 
-                    <p className="text-xs leading-5 text-slate-500">
+                    <p className="text-xs leading-5 text-slate-400">
                       Position, rotate, and resize a text box on the canvas,
                       then select it here to write its content.
                     </p>
@@ -3517,7 +3604,7 @@ export default function SchedulePage() {
                     {selectedTextBox && (
                       <div className="space-y-3 rounded-xl border border-slate-700 bg-slate-900/80 p-3">
                         <label className="block space-y-1">
-                          <span className="text-xs font-semibold text-slate-500">
+                          <span className="text-xs font-semibold text-slate-400">
                             Content
                           </span>
 
@@ -3625,7 +3712,7 @@ export default function SchedulePage() {
 
                         {customizationMode === "advanced" && (
                           <div className="space-y-1">
-                            <p className="text-xs font-semibold text-slate-500">
+                            <p className="text-xs font-semibold text-slate-400">
                               Layering
                             </p>
 
@@ -3705,7 +3792,7 @@ export default function SchedulePage() {
                     <Panel title={`${selectedDay.day} content`}>
                       {selectedDayDate && (
                         <div className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-3">
-                          <p className="text-xs font-semibold text-slate-500">
+                          <p className="text-xs font-semibold text-slate-400">
                             Calculated date
                           </p>
 
@@ -3743,14 +3830,14 @@ export default function SchedulePage() {
                       <>
                         <Panel title={`${selectedDay.day} width`}>
                           {scheduleLayout === "list" ? (
-                            <p className="text-xs leading-5 text-slate-500">
+                            <p className="text-xs leading-5 text-slate-400">
                               List rows always span full width. Use the
                               &quot;Height&quot; slider in card style to control
                               how much vertical space this row takes relative to
                               the others.
                             </p>
                           ) : isGridLayout ? (
-                            <p className="text-xs leading-5 text-slate-500">
+                            <p className="text-xs leading-5 text-slate-400">
                               Width controls only apply to the 16:9 row layout.
                               On {ASPECT_RATIOS[aspectRatioId].label}, cards
                               fill their grid cell evenly — use the card style
@@ -3791,7 +3878,7 @@ export default function SchedulePage() {
                                 />
                               )}
 
-                              <p className="text-xs leading-5 text-slate-500">
+                              <p className="text-xs leading-5 text-slate-400">
                                 Locked cards keep their width while unlocked
                                 cards divide the remaining space.
                               </p>
@@ -3854,7 +3941,7 @@ export default function SchedulePage() {
                                 onChange={(value) => updateDay("height", value)}
                               />
 
-                              <p className="text-xs leading-5 text-slate-500">
+                              <p className="text-xs leading-5 text-slate-400">
                                 Rows are sized relative to each other's weight —
                                 a row with 200 takes up twice the space of a row
                                 with 100.
@@ -3922,7 +4009,7 @@ export default function SchedulePage() {
                           />
 
                           <div className="space-y-1">
-                            <p className="text-xs font-semibold text-slate-500">
+                            <p className="text-xs font-semibold text-slate-400">
                               Shadow direction
                             </p>
 
@@ -3944,11 +4031,11 @@ export default function SchedulePage() {
                           </div>
 
                           <div className="space-y-1">
-                            <p className="text-xs font-semibold text-slate-500">
+                            <p className="text-xs font-semibold text-slate-400">
                               Layering
                             </p>
 
-                            <p className="text-xs leading-5 text-slate-500">
+                            <p className="text-xs leading-5 text-slate-400">
                               Send a day back to let stickers or text peek out
                               in front of it, or above.
                             </p>
@@ -3996,7 +4083,7 @@ export default function SchedulePage() {
                 {activeTab === "discord" && (
                   <Panel title="Discord timestamps">
                     <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
-                      <p className="text-xs font-semibold text-slate-500">
+                      <p className="text-xs font-semibold text-slate-400">
                         Timezone used
                       </p>
 
@@ -4004,7 +4091,7 @@ export default function SchedulePage() {
                         {effectiveTimezone}
                       </p>
 
-                      <p className="mt-1 text-xs leading-5 text-slate-500">
+                      <p className="mt-1 text-xs leading-5 text-slate-400">
                         {overrideTimezoneEnabled
                           ? "Using your manually selected timezone."
                           : "Detected automatically from this device."}
@@ -4069,7 +4156,7 @@ export default function SchedulePage() {
 
                     {getSelectedDayDiscordText() && (
                       <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
-                        <p className="mb-1 text-xs font-semibold text-slate-500">
+                        <p className="mb-1 text-xs font-semibold text-slate-400">
                           Selected day output
                         </p>
 
@@ -4097,7 +4184,7 @@ export default function SchedulePage() {
                       </p>
                     )}
 
-                    <p className="text-xs leading-5 text-slate-500">
+                    <p className="text-xs leading-5 text-slate-400">
                       Discord automatically displays timestamps in each
                       reader&apos;s local timezone.
                     </p>
@@ -4377,7 +4464,7 @@ function DateInput({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-semibold text-slate-500">
+      <span className="mb-1 block text-xs font-semibold text-slate-400">
         {label}
       </span>
 
@@ -4402,7 +4489,7 @@ function TimeInput({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-semibold text-slate-500">
+      <span className="mb-1 block text-xs font-semibold text-slate-400">
         {label}
       </span>
 
@@ -4432,7 +4519,7 @@ function SelectInput({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-semibold text-slate-500">
+      <span className="mb-1 block text-xs font-semibold text-slate-400">
         {label}
       </span>
 
@@ -4462,7 +4549,7 @@ function TextInput({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-semibold text-slate-500">
+      <span className="mb-1 block text-xs font-semibold text-slate-400">
         {label}
       </span>
 
@@ -4486,7 +4573,7 @@ function TextArea({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-semibold text-slate-500">
+      <span className="mb-1 block text-xs font-semibold text-slate-400">
         {label}
       </span>
 
@@ -4532,7 +4619,7 @@ function FileInput({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-semibold text-slate-500">
+      <span className="mb-1 block text-xs font-semibold text-slate-400">
         {label}
       </span>
 
@@ -4565,7 +4652,7 @@ function ColorInput({
 }) {
   return (
     <label className="flex items-center justify-between gap-3">
-      <span className="text-xs font-semibold text-slate-500">{label}</span>
+      <span className="text-xs font-semibold text-slate-400">{label}</span>
 
       <div className="flex items-center gap-2">
         <input
@@ -4604,7 +4691,7 @@ function RangeInput({
 }) {
   return (
     <label className="block">
-      <div className="mb-1 flex justify-between text-xs font-semibold text-slate-500">
+      <div className="mb-1 flex justify-between text-xs font-semibold text-slate-400">
         <span>{label}</span>
 
         <span>
@@ -4639,6 +4726,7 @@ function SmallButton({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={[
         "rounded-xl border px-3 py-2 text-sm font-bold transition",
         active
