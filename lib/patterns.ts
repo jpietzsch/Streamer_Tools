@@ -85,7 +85,7 @@ function hexToUnit(hex: string): [number, number, number] {
 // noise specks show up.
 function grainTile(color: string): string {
   const [r, g, b] = hexToUnit(color).map((n) => n.toFixed(3));
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><filter id="n" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 1.6 0 0 0 -0.5"/></filter><rect width="160" height="160" filter="url(#n)"/></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><filter id="n" color-interpolation-filters="sRGB" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 1.6 0 0 0 -0.5"/></filter><rect width="160" height="160" filter="url(#n)"/></svg>`;
 }
 
 // CSS for one absolutely positioned pattern layer, or null when there is nothing
@@ -144,7 +144,8 @@ export function patternLayerStyle(
     case "grain":
       // Fractal noise from an SVG filter, tinted with the pattern colour. Random noise
       // reads as subtle grain; regular dot grids looked like a mesh. The tile is
-      // stitched so the repeat has no visible seam.
+      // stitched so the repeat has no visible seam. color-interpolation-filters="sRGB" makes the
+      // filter use the colour as written; the default (linearRGB) made mid-tones too light.
       return {
         backgroundImage: svgUrl(grainTile(c)),
         backgroundSize: `${px(160, s)} ${px(160, s)}`,
