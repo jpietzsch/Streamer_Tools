@@ -1,0 +1,149 @@
+{
+  "version": 7,
+  "exportedAt": "2026-11-07T12:00:00.000Z",
+  "project": {
+    "displayName": "Test Streamer",
+    "scheduleTitle": "Weekly Schedule",
+    "scheduleStartDate": "2026-11-09",
+    "scheduleEndDate": "2026-11-11"
+  },
+  "canvas": {
+    "aspectRatio": "16:9",
+    "scheduleLayout": "cards"
+  },
+  "header": {
+    "avatarSize": 112,
+    "avatarGap": 24,
+    "eyebrowFontSize": 22,
+    "titleFontSize": 64,
+    "dateFontSize": 28,
+    "textGap": 8
+  },
+  "discord": {
+    "overrideTimezoneEnabled": true,
+    "overrideTimezone": "Europe/Berlin",
+    "timestampStyle": "f"
+  },
+  "appearance": {
+    "showDots": false,
+    "theme": {
+      "backgroundA": "#0f172a",
+      "backgroundB": "#1e293b",
+      "cardActive": "#38bdf8",
+      "cardRest": "#334155",
+      "text": "#020617"
+    }
+  },
+  "images": {
+    "avatarImage": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+    "avatarZoom": 1.5,
+    "avatarOffsetX": 2,
+    "avatarOffsetY": -3,
+    "backgroundImage": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+    "backgroundOpacity": 60,
+    "backgroundBlur": 4,
+    "backgroundFit": "cover"
+  },
+  "schedule": [
+    {
+      "day": "Monday",
+      "title": "Stream",
+      "time": "18:00",
+      "note": "Chill",
+      "active": true,
+      "widthWeight": 1,
+      "widthLocked": false,
+      "lockedWidthPercent": 50,
+      "height": 30,
+      "rotation": 0,
+      "borderRadius": 24,
+      "borderWidth": 2,
+      "borderColor": "#ffffff",
+      "shadowOffset": 8,
+      "shadowDirection": "bottom-right",
+      "zIndex": 10,
+      "dayFontSize": 28,
+      "titleFontSize": 32,
+      "timeFontSize": 24,
+      "noteFontSize": 18
+    },
+    {
+      "day": "Tuesday",
+      "title": "Stream",
+      "time": "18:00",
+      "note": "Chill",
+      "active": false,
+      "widthWeight": 1,
+      "widthLocked": false,
+      "lockedWidthPercent": 50,
+      "height": 30,
+      "rotation": 0,
+      "borderRadius": 24,
+      "borderWidth": 2,
+      "borderColor": "#ffffff",
+      "shadowOffset": 8,
+      "shadowDirection": "bottom-right",
+      "zIndex": 10,
+      "dayFontSize": 28,
+      "titleFontSize": 32,
+      "timeFontSize": 24,
+      "noteFontSize": 18
+    },
+    {
+      "day": "Wednesday",
+      "title": "Stream",
+      "time": "18:00",
+      "note": "Chill",
+      "active": true,
+      "widthWeight": 1,
+      "widthLocked": false,
+      "lockedWidthPercent": 50,
+      "height": 30,
+      "rotation": 0,
+      "borderRadius": 24,
+      "borderWidth": 2,
+      "borderColor": "#ffffff",
+      "shadowOffset": 8,
+      "shadowDirection": "bottom-right",
+      "zIndex": 10,
+      "dayFontSize": 28,
+      "titleFontSize": 32,
+      "timeFontSize": 24,
+      "noteFontSize": 18
+    }
+  ],
+  "stickers": [
+    {
+      "id": "sticker-1",
+      "name": "dot.png",
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+      "x": 80,
+      "y": 20,
+      "size": 120,
+      "rotation": 15,
+      "opacity": 90,
+      "zIndex": 20,
+      "borderRadius": 0,
+      "borderWidth": 0,
+      "borderColor": "#ffffff",
+      "shadowOffset": 0,
+      "shadowDirection": "bottom-right"
+    }
+  ],
+  "textBoxes": [
+    {
+      "id": "text-1",
+      "text": "Hello chat",
+      "bold": true,
+      "italic": false,
+      "x": 50,
+      "y": 90,
+      "width": 400,
+      "rotation": 0,
+      "fontSize": 36,
+      "color": "#ffffff",
+      "align": "center",
+      "zIndex": 30
+    }
+  ]
+}

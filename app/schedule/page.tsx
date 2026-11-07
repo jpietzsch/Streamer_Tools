@@ -16,76 +16,23 @@ import {
   getBrowserTimezone,
   type DiscordTimestampStyle,
 } from "../../lib/discordTimestamp";
-
-type ShadowDirection =
-  "top-left" | "top-right" | "bottom-left" | "bottom-right";
-
-type DayItem = {
-  day: string;
-  title: string;
-  time: string;
-  note: string;
-  active: boolean;
-
-  widthWeight: number;
-  widthLocked: boolean;
-  lockedWidthPercent: number;
-
-  height: number;
-  rotation: number;
-  borderRadius: number;
-  borderWidth: number;
-  borderColor: string;
-  shadowOffset: number;
-  shadowDirection: ShadowDirection;
-  zIndex: number;
-
-  dayFontSize: number;
-  titleFontSize: number;
-  timeFontSize: number;
-  noteFontSize: number;
-};
-
-type Theme = {
-  backgroundA: string;
-  backgroundB: string;
-  cardActive: string;
-  cardRest: string;
-  text: string;
-};
-
-type Sticker = {
-  id: string;
-  name: string;
-  src: string;
-  x: number;
-  y: number;
-  size: number;
-  rotation: number;
-  opacity: number;
-  zIndex: number;
-
-  borderRadius: number;
-  borderWidth: number;
-  borderColor: string;
-  shadowOffset: number;
-  shadowDirection: ShadowDirection;
-};
-
-type TextBox = {
-  id: string;
-  text: string;
-  bold: boolean;
-  italic: boolean;
-  x: number;
-  y: number;
-  width: number;
-  rotation: number;
-  fontSize: number;
-  color: string;
-  align: "left" | "center" | "right";
-  zIndex: number;
-};
+import { DEFAULT_PATTERN } from "../../lib/patterns";
+import {
+  ASPECT_RATIOS,
+  MAX_SCHEDULE_DAYS,
+  MAX_TEMPLATE_SIZE_BYTES,
+  TEMPLATE_VERSION,
+  parseTemplate,
+  type AspectRatioId,
+  type DayItem,
+  type HeaderStyle,
+  type ScheduleLayout,
+  type ScheduleTemplate,
+  type ShadowDirection,
+  type Sticker,
+  type TextBox,
+  type Theme,
+} from "../../lib/template";
 
 type DragState = {
   stickerId: string;
@@ -157,51 +104,6 @@ function normalizeRotation(degrees: number): number {
 
   return normalized;
 }
-
-type ScheduleTemplateV1 = {
-  version: 7;
-  exportedAt: string;
-
-  project: {
-    displayName: string;
-    scheduleTitle: string;
-    scheduleStartDate: string;
-    scheduleEndDate: string;
-  };
-
-  canvas: {
-    aspectRatio: AspectRatioId;
-    scheduleLayout: ScheduleLayout;
-  };
-
-  header: HeaderStyle;
-
-  discord: {
-    overrideTimezoneEnabled: boolean;
-    overrideTimezone: string;
-    timestampStyle: DiscordTimestampStyle;
-  };
-
-  appearance: {
-    showDots: boolean;
-    theme: Theme;
-  };
-
-  images: {
-    avatarImage: string | null;
-    avatarZoom: number;
-    avatarOffsetX: number;
-    avatarOffsetY: number;
-    backgroundImage: string | null;
-    backgroundOpacity: number;
-    backgroundBlur: number;
-    backgroundFit: "cover" | "contain";
-  };
-
-  schedule: DayItem[];
-  stickers: Sticker[];
-  textBoxes: TextBox[];
-};
 
 type TemplateMessage = {
   type: "success" | "error" | "info";
@@ -365,27 +267,7 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   },
 ];
 
-const TEMPLATE_VERSION = 7;
-const MAX_TEMPLATE_SIZE_BYTES = 50 * 1024 * 1024;
-
-type AspectRatioId = "16:9" | "9:16" | "1:1" | "4:5";
-type ScheduleLayout = "cards" | "list";
 type CustomizationMode = "simple" | "advanced";
-
-const ASPECT_RATIOS: Record<
-  AspectRatioId,
-  { width: number; height: number; label: string; gridColumns: number }
-> = {
-  "16:9": {
-    width: 1920,
-    height: 1080,
-    label: "16:9 Landscape",
-    gridColumns: 0,
-  },
-  "9:16": { width: 1080, height: 1920, label: "9:16 Vertical", gridColumns: 2 },
-  "1:1": { width: 1080, height: 1080, label: "1:1 Square", gridColumns: 3 },
-  "4:5": { width: 1080, height: 1350, label: "4:5 Portrait", gridColumns: 3 },
-};
 
 const MIN_ZOOM_LEVEL = 0.25;
 const MAX_ZOOM_LEVEL = 4;
@@ -398,19 +280,6 @@ const EXPORT_QUALITY_OPTIONS: Array<{ value: ExportQuality; label: string }> = [
   { value: 0.5, label: "0.5×" },
   { value: 1, label: "1×" },
   { value: 2, label: "2×" },
-];
-
-const MIN_SCHEDULE_DAYS = 1;
-const MAX_SCHEDULE_DAYS = 31;
-
-const DISCORD_TIMESTAMP_STYLES: DiscordTimestampStyle[] = [
-  "t",
-  "T",
-  "d",
-  "D",
-  "f",
-  "F",
-  "R",
 ];
 
 const DAY_DEFAULT_Z_INDEX = 10;
@@ -462,15 +331,6 @@ function getShadowOffsetXY(
     y: direction.startsWith("bottom") ? offset : -offset,
   };
 }
-
-type HeaderStyle = {
-  avatarSize: number;
-  avatarGap: number;
-  eyebrowFontSize: number;
-  titleFontSize: number;
-  dateFontSize: number;
-  textGap: number;
-};
 
 const defaultHeaderStyle: HeaderStyle = {
   avatarSize: 112,
@@ -633,393 +493,6 @@ function getScheduleDayCount(
   const dayCount = Math.round(end.diff(start, "days").days) + 1;
 
   return dayCount;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function isDiscordTimestampStyle(
-  value: unknown,
-): value is DiscordTimestampStyle {
-  return (
-    typeof value === "string" &&
-    DISCORD_TIMESTAMP_STYLES.includes(value as DiscordTimestampStyle)
-  );
-}
-
-function isImageDataUrl(value: unknown): value is string {
-  if (typeof value !== "string") {
-    return false;
-  }
-
-  return /^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(value);
-}
-
-function isNullableImageDataUrl(value: unknown): value is string | null {
-  return value === null || isImageDataUrl(value);
-}
-
-function isHexColor(value: unknown): value is string {
-  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
-}
-
-function isAspectRatioId(value: unknown): value is AspectRatioId {
-  return (
-    typeof value === "string" &&
-    Object.prototype.hasOwnProperty.call(ASPECT_RATIOS, value)
-  );
-}
-
-function isScheduleLayout(value: unknown): value is ScheduleLayout {
-  return value === "cards" || value === "list";
-}
-
-function isDateInputValue(value: unknown): value is string {
-  if (value === "") {
-    return true;
-  }
-
-  if (typeof value !== "string") {
-    return false;
-  }
-
-  const parsed = DateTime.fromISO(value);
-
-  return parsed.isValid && parsed.toISODate() === value;
-}
-
-function isValidTimezone(value: unknown): value is string {
-  if (typeof value !== "string" || value.length === 0) {
-    return false;
-  }
-
-  try {
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: value,
-    }).format();
-
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function validateTheme(value: unknown): value is Theme {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    isHexColor(value.backgroundA) &&
-    isHexColor(value.backgroundB) &&
-    isHexColor(value.cardActive) &&
-    isHexColor(value.cardRest) &&
-    isHexColor(value.text)
-  );
-}
-
-function isShadowDirection(value: unknown): value is ShadowDirection {
-  return (
-    value === "top-left" ||
-    value === "top-right" ||
-    value === "bottom-left" ||
-    value === "bottom-right"
-  );
-}
-
-function validateDayItem(value: unknown): value is DayItem {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    typeof value.day === "string" &&
-    typeof value.title === "string" &&
-    typeof value.time === "string" &&
-    typeof value.note === "string" &&
-    typeof value.active === "boolean" &&
-    isFiniteNumber(value.widthWeight) &&
-    value.widthWeight >= 0.1 &&
-    value.widthWeight <= 20 &&
-    typeof value.widthLocked === "boolean" &&
-    isFiniteNumber(value.lockedWidthPercent) &&
-    value.lockedWidthPercent >= 1 &&
-    value.lockedWidthPercent <= 100 &&
-    isFiniteNumber(value.height) &&
-    value.height >= 1 &&
-    value.height <= 100 &&
-    isFiniteNumber(value.rotation) &&
-    value.rotation >= -360 &&
-    value.rotation <= 360 &&
-    isFiniteNumber(value.borderRadius) &&
-    value.borderRadius >= 0 &&
-    value.borderRadius <= 500 &&
-    isFiniteNumber(value.borderWidth) &&
-    value.borderWidth >= 0 &&
-    value.borderWidth <= 100 &&
-    isHexColor(value.borderColor) &&
-    isFiniteNumber(value.shadowOffset) &&
-    value.shadowOffset >= 0 &&
-    value.shadowOffset <= 500 &&
-    isShadowDirection(value.shadowDirection) &&
-    isFiniteNumber(value.zIndex) &&
-    value.zIndex >= -100000 &&
-    value.zIndex <= 100000 &&
-    isFiniteNumber(value.dayFontSize) &&
-    value.dayFontSize >= 1 &&
-    value.dayFontSize <= 300 &&
-    isFiniteNumber(value.titleFontSize) &&
-    value.titleFontSize >= 1 &&
-    value.titleFontSize <= 300 &&
-    isFiniteNumber(value.timeFontSize) &&
-    value.timeFontSize >= 1 &&
-    value.timeFontSize <= 300 &&
-    isFiniteNumber(value.noteFontSize) &&
-    value.noteFontSize >= 1 &&
-    value.noteFontSize <= 300
-  );
-}
-
-function validateHeaderStyle(value: unknown): value is HeaderStyle {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    isFiniteNumber(value.avatarSize) &&
-    value.avatarSize >= 20 &&
-    value.avatarSize <= 800 &&
-    isFiniteNumber(value.avatarGap) &&
-    value.avatarGap >= 0 &&
-    value.avatarGap <= 400 &&
-    isFiniteNumber(value.eyebrowFontSize) &&
-    value.eyebrowFontSize >= 1 &&
-    value.eyebrowFontSize <= 300 &&
-    isFiniteNumber(value.titleFontSize) &&
-    value.titleFontSize >= 1 &&
-    value.titleFontSize <= 400 &&
-    isFiniteNumber(value.dateFontSize) &&
-    value.dateFontSize >= 1 &&
-    value.dateFontSize <= 300 &&
-    isFiniteNumber(value.textGap) &&
-    value.textGap >= 0 &&
-    value.textGap <= 200
-  );
-}
-
-function validateSticker(value: unknown): value is Sticker {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    typeof value.id === "string" &&
-    value.id.length > 0 &&
-    typeof value.name === "string" &&
-    isImageDataUrl(value.src) &&
-    isFiniteNumber(value.x) &&
-    value.x >= 0 &&
-    value.x <= 100 &&
-    isFiniteNumber(value.y) &&
-    value.y >= 0 &&
-    value.y <= 100 &&
-    isFiniteNumber(value.size) &&
-    value.size >= 1 &&
-    value.size <= 5000 &&
-    isFiniteNumber(value.rotation) &&
-    value.rotation >= -3600 &&
-    value.rotation <= 3600 &&
-    isFiniteNumber(value.opacity) &&
-    value.opacity >= 0 &&
-    value.opacity <= 100 &&
-    isFiniteNumber(value.zIndex) &&
-    value.zIndex >= -100000 &&
-    value.zIndex <= 100000 &&
-    isFiniteNumber(value.borderRadius) &&
-    value.borderRadius >= 0 &&
-    value.borderRadius <= 2000 &&
-    isFiniteNumber(value.borderWidth) &&
-    value.borderWidth >= 0 &&
-    value.borderWidth <= 200 &&
-    isHexColor(value.borderColor) &&
-    isFiniteNumber(value.shadowOffset) &&
-    value.shadowOffset >= 0 &&
-    value.shadowOffset <= 500 &&
-    isShadowDirection(value.shadowDirection)
-  );
-}
-
-function validateTextBox(value: unknown): value is TextBox {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    typeof value.id === "string" &&
-    value.id.length > 0 &&
-    typeof value.text === "string" &&
-    typeof value.bold === "boolean" &&
-    typeof value.italic === "boolean" &&
-    isFiniteNumber(value.x) &&
-    value.x >= 0 &&
-    value.x <= 100 &&
-    isFiniteNumber(value.y) &&
-    value.y >= 0 &&
-    value.y <= 100 &&
-    isFiniteNumber(value.width) &&
-    value.width >= 20 &&
-    value.width <= 5000 &&
-    isFiniteNumber(value.rotation) &&
-    value.rotation >= -3600 &&
-    value.rotation <= 3600 &&
-    isFiniteNumber(value.fontSize) &&
-    value.fontSize >= 4 &&
-    value.fontSize <= 400 &&
-    isHexColor(value.color) &&
-    (value.align === "left" ||
-      value.align === "center" ||
-      value.align === "right") &&
-    isFiniteNumber(value.zIndex) &&
-    value.zIndex >= -100000 &&
-    value.zIndex <= 100000
-  );
-}
-
-function validateTemplate(value: unknown): value is ScheduleTemplateV1 {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  if (value.version !== TEMPLATE_VERSION) {
-    return false;
-  }
-
-  if (typeof value.exportedAt !== "string") {
-    return false;
-  }
-
-  if (!isRecord(value.project)) {
-    return false;
-  }
-
-  if (
-    typeof value.project.displayName !== "string" ||
-    typeof value.project.scheduleTitle !== "string" ||
-    !isDateInputValue(value.project.scheduleStartDate) ||
-    !isDateInputValue(value.project.scheduleEndDate)
-  ) {
-    return false;
-  }
-
-  if (
-    !isRecord(value.canvas) ||
-    !isAspectRatioId(value.canvas.aspectRatio) ||
-    !isScheduleLayout(value.canvas.scheduleLayout)
-  ) {
-    return false;
-  }
-
-  if (!validateHeaderStyle(value.header)) {
-    return false;
-  }
-
-  if (!isRecord(value.discord)) {
-    return false;
-  }
-
-  if (
-    typeof value.discord.overrideTimezoneEnabled !== "boolean" ||
-    !isValidTimezone(value.discord.overrideTimezone) ||
-    !isDiscordTimestampStyle(value.discord.timestampStyle)
-  ) {
-    return false;
-  }
-
-  if (!isRecord(value.appearance)) {
-    return false;
-  }
-
-  if (
-    typeof value.appearance.showDots !== "boolean" ||
-    !validateTheme(value.appearance.theme)
-  ) {
-    return false;
-  }
-
-  if (!isRecord(value.images)) {
-    return false;
-  }
-
-  if (
-    !isNullableImageDataUrl(value.images.avatarImage) ||
-    !isFiniteNumber(value.images.avatarZoom) ||
-    value.images.avatarZoom < 1 ||
-    value.images.avatarZoom > 3 ||
-    !isFiniteNumber(value.images.avatarOffsetX) ||
-    value.images.avatarOffsetX < -50 ||
-    value.images.avatarOffsetX > 50 ||
-    !isFiniteNumber(value.images.avatarOffsetY) ||
-    value.images.avatarOffsetY < -50 ||
-    value.images.avatarOffsetY > 50 ||
-    !isNullableImageDataUrl(value.images.backgroundImage) ||
-    !isFiniteNumber(value.images.backgroundOpacity) ||
-    value.images.backgroundOpacity < 0 ||
-    value.images.backgroundOpacity > 100 ||
-    !isFiniteNumber(value.images.backgroundBlur) ||
-    value.images.backgroundBlur < 0 ||
-    value.images.backgroundBlur > 100 ||
-    (value.images.backgroundFit !== "cover" &&
-      value.images.backgroundFit !== "contain")
-  ) {
-    return false;
-  }
-
-  if (
-    !Array.isArray(value.schedule) ||
-    value.schedule.length < MIN_SCHEDULE_DAYS ||
-    value.schedule.length > MAX_SCHEDULE_DAYS
-  ) {
-    return false;
-  }
-
-  const scheduleIsValid = value.schedule.every((day) => validateDayItem(day));
-
-  if (!scheduleIsValid) {
-    return false;
-  }
-
-  if (
-    !Array.isArray(value.stickers) ||
-    !value.stickers.every(validateSticker)
-  ) {
-    return false;
-  }
-
-  const stickerIds = value.stickers.map((sticker) => sticker.id);
-
-  if (new Set(stickerIds).size !== stickerIds.length) {
-    return false;
-  }
-
-  if (
-    !Array.isArray(value.textBoxes) ||
-    !value.textBoxes.every(validateTextBox)
-  ) {
-    return false;
-  }
-
-  const textBoxIds = value.textBoxes.map((textBox) => textBox.id);
-
-  if (new Set(textBoxIds).size !== textBoxIds.length) {
-    return false;
-  }
-
-  return true;
 }
 
 function createTemplateFilename(
@@ -2102,7 +1575,7 @@ export default function SchedulePage() {
     }
   }, [zoomLevel]);
 
-  function createCurrentTemplate(): ScheduleTemplateV1 {
+  function createCurrentTemplate(): ScheduleTemplate {
     return {
       version: TEMPLATE_VERSION,
       exportedAt: new Date().toISOString(),
@@ -2128,7 +1601,8 @@ export default function SchedulePage() {
       },
 
       appearance: {
-        showDots,
+        // Until the pattern picker exists, the dots toggle maps onto the pattern.
+        pattern: { ...DEFAULT_PATTERN, type: showDots ? "dots" : "none" },
         theme,
       },
 
@@ -2157,7 +1631,7 @@ export default function SchedulePage() {
   const resnapshotRef = useRef(true);
   const hasUnsavedChangesRef = useRef<() => boolean>(() => false);
 
-  function createSnapshot(template: ScheduleTemplateV1): string {
+  function createSnapshot(template: ScheduleTemplate): string {
     // exportedAt changes on every call, so it is blanked out before comparing.
     return JSON.stringify({ ...template, exportedAt: "" });
   }
@@ -2281,29 +1755,22 @@ export default function SchedulePage() {
     try {
       const text = await file.text();
 
-      let parsed: unknown;
+      let json: unknown;
 
       try {
-        parsed = JSON.parse(text);
+        json = JSON.parse(text);
       } catch {
         throw new Error("The selected file is not valid JSON.");
       }
 
-      if (!isRecord(parsed)) {
-        throw new Error("The template has an invalid structure.");
+      // Accepts v8, migrates v7, and gives a user-facing message otherwise.
+      const result = parseTemplate(json);
+
+      if (!result.ok) {
+        throw new Error(result.error);
       }
 
-      if (parsed.version !== TEMPLATE_VERSION) {
-        throw new Error(
-          `Unsupported template version. This editor currently supports version ${TEMPLATE_VERSION}.`,
-        );
-      }
-
-      if (!validateTemplate(parsed)) {
-        throw new Error(
-          "The file is missing required information or contains invalid values.",
-        );
-      }
+      const parsed = result.template;
 
       setDisplayName(parsed.project.displayName);
       setScheduleTitle(parsed.project.scheduleTitle);
@@ -2319,7 +1786,7 @@ export default function SchedulePage() {
       setOverrideTimezone(parsed.discord.overrideTimezone);
       setDiscordStyle(parsed.discord.timestampStyle);
 
-      setShowDots(parsed.appearance.showDots);
+      setShowDots(parsed.appearance.pattern.type !== "none");
       setTheme(parsed.appearance.theme);
 
       setAvatarImage(parsed.images.avatarImage);
