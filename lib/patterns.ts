@@ -73,6 +73,21 @@ function iconTile(path: string, color: string): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><path transform="translate(10 10) scale(0.8)" d="${path}" fill="${color}"/></svg>`;
 }
 
+// "#rrggbb" -> [r, g, b] as 0..1 numbers (what SVG colour matrices use). Falls back to white.
+function hexToUnit(hex: string): [number, number, number] {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return [1, 1, 1];
+  return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255];
+}
+
+// 160x160 noise tile. feColorMatrix paints every pixel in the colour and takes its
+// alpha from the noise's red channel (alpha = 1.6 * R - 0.5), so only the brighter
+// noise specks show up.
+function grainTile(color: string): string {
+  const [r, g, b] = hexToUnit(color).map((n) => n.toFixed(3));
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><filter id="n" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 1.6 0 0 0 -0.5"/></filter><rect width="160" height="160" filter="url(#n)"/></svg>`;
+}
+
 // CSS for one absolutely positioned pattern layer, or null when there is nothing
 // to draw ("none") or the dedicated dots component handles it ("dots").
 export function patternLayerStyle(
@@ -108,10 +123,13 @@ export function patternLayerStyle(
         backgroundSize: `${px(26, s)} ${px(14, s)}`,
       };
     case "zigzag":
+      // A real zigzag line: a 24x12 SVG tile whose line starts and ends at the same
+      // height, so the tiles join into one continuous zigzag.
       return {
-        backgroundImage: `linear-gradient(135deg, ${c} 25%, transparent 25%), linear-gradient(225deg, ${c} 25%, transparent 25%)`,
-        backgroundSize: `${px(24, s)} ${px(24, s)}`,
-        backgroundPosition: "0 0, 0 0",
+        backgroundImage: svgUrl(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="12" viewBox="0 0 24 12"><path d="M0 9 L6 3 L12 9 L18 3 L24 9" fill="none" stroke="${c}" stroke-width="1.5"/></svg>`,
+        ),
+        backgroundSize: `${px(24, s)} ${px(12, s)}`,
       };
     case "hearts":
       return {
@@ -124,16 +142,18 @@ export function patternLayerStyle(
         backgroundSize: `${px(40, s)} ${px(40, s)}`,
       };
     case "grain":
-      // Two dense dot grids with different spacing so the dots do not line up like a grid.
+      // Fractal noise from an SVG filter, tinted with the pattern colour. Random noise
+      // reads as subtle grain; regular dot grids looked like a mesh. The tile is
+      // stitched so the repeat has no visible seam.
       return {
-        backgroundImage: `radial-gradient(${c} 1px, transparent 1px), radial-gradient(${c} 1px, transparent 1px)`,
-        backgroundSize: `${px(5, s)} ${px(5, s)}, ${px(7, s)} ${px(7, s)}`,
-        backgroundPosition: "0 0, 2px 3px",
+        backgroundImage: svgUrl(grainTile(c)),
+        backgroundSize: `${px(160, s)} ${px(160, s)}`,
       };
     case "glow":
-      // Two big soft blobs; the tile is large so the blobs stay few and soft.
+      // Two big soft blobs. "closest-side" ends each blob exactly at the nearest tile
+      // edge, so the blobs never get cut off (that made visible seams between tiles).
       return {
-        backgroundImage: `radial-gradient(circle at 25% 30%, ${c}, transparent 45%), radial-gradient(circle at 80% 75%, ${c}, transparent 45%)`,
+        backgroundImage: `radial-gradient(circle closest-side at 33% 35%, ${c}, transparent), radial-gradient(circle closest-side at 72% 70%, ${c}, transparent)`,
         backgroundSize: `${px(400, s)} ${px(400, s)}`,
       };
   }
