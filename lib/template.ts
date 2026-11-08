@@ -146,8 +146,19 @@ function isNullableImageDataUrl(value: unknown): value is string | null {
   return value === null || isImageDataUrl(value);
 }
 
-function isHexColor(value: unknown): value is string {
+// The only colour format templates accept: "#" plus six hex digits, e.g. "#0e7490".
+export function isHexColor(value: unknown): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+// Turns what someone typed into a colour field into a valid "#rrggbb" colour, or null
+// while it is not one yet ("#0", "#12345"). Spaces and a missing "#" are forgiven, and
+// the result is lowercase like the browser's colour picker.
+export function parseHexColorDraft(draft: string): string | null {
+  const trimmed = draft.trim();
+  const withHash = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+
+  return isHexColor(withHash) ? withHash.toLowerCase() : null;
 }
 
 function isAspectRatioId(value: unknown): value is AspectRatioId {

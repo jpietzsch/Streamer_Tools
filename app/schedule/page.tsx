@@ -23,11 +23,12 @@ import { DayToolbar } from "./components/toolbars/DayToolbar";
 import { HeaderToolbar } from "./components/toolbars/HeaderToolbar";
 import { StickerToolbar } from "./components/toolbars/StickerToolbar";
 import { TextBoxToolbar } from "./components/toolbars/TextBoxToolbar";
+import { Toast, type ToastMessage } from "./components/Toast";
+import { CLOSES_MENU, TopBarMenu } from "./components/TopBarMenu";
 import {
   ColorInput,
   DateInput,
   FileInput,
-  Panel,
   RangeInput,
   SecondaryButton,
   SelectInput,
@@ -130,109 +131,78 @@ function normalizeRotation(degrees: number): number {
   return normalized;
 }
 
-type TemplateMessage = {
-  type: "success" | "error" | "info";
-  text: string;
-} | null;
+// Small icons for the top-bar menus. currentColor makes them follow the button's text.
+function MenuIcon({ children }: { children: React.ReactNode }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="h-4 w-4"
+    >
+      {children}
+    </svg>
+  );
+}
 
-// Stickers, text boxes and days are edited in their floating toolbars, not in tabs.
-type TabId = "project" | "appearance" | "images" | "discord";
+const MENU_ICONS = {
+  project: (
+    <MenuIcon>
+      <path d="M4 5a1 1 0 0 1 1-1h9l6 6v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5z" />
+      <path d="M14 4v5a1 1 0 0 0 1 1h5" />
+    </MenuIcon>
+  ),
+  theme: (
+    <MenuIcon>
+      <path d="M12 21a9 9 0 1 1 0-18c4.97 0 9 3.582 9 8 0 2.21-1.79 3-3.5 3H15a2 2 0 0 0-1.4 3.4c.4.4.4 1-.1 1.3-.5.3-1 .8-1.5 1.3-.3.3 0 1 0 1z" />
+      <circle cx="7.5" cy="10.5" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="11" cy="7" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="8.5" r="1.2" fill="currentColor" stroke="none" />
+    </MenuIcon>
+  ),
+  background: (
+    <MenuIcon>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="8.5" cy="9.5" r="1.5" />
+      <path d="M21 16l-5.5-5.5a2 2 0 0 0-2.8 0L4 19" />
+    </MenuIcon>
+  ),
+  add: (
+    <MenuIcon>
+      <path d="M12 5v14M5 12h14" />
+    </MenuIcon>
+  ),
+  discord: (
+    <MenuIcon>
+      <path d="M4 12a8 8 0 1 1 8 8 8.4 8.4 0 0 1-3.5-.8L4 20l1-4.2A7.9 7.9 0 0 1 4 12z" />
+    </MenuIcon>
+  ),
+  template: (
+    <MenuIcon>
+      <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
+    </MenuIcon>
+  ),
+};
 
-const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
-  {
-    id: "project",
-    label: "Project",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        className="h-4 w-4"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M4 5a1 1 0 0 1 1-1h9l6 6v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5z"
-        />
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M14 4v5a1 1 0 0 0 1 1h5"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: "appearance",
-    label: "Appearance",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        className="h-4 w-4"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M12 21a9 9 0 1 1 0-18c4.97 0 9 3.582 9 8 0 2.21-1.79 3-3.5 3H15a2 2 0 0 0-1.4 3.4c.4.4.4 1-.1 1.3-.5.3-1 .8-1.5 1.3-.3.3 0 1 0 1z"
-        />
-        <circle cx="7.5" cy="10.5" r="1.2" fill="currentColor" stroke="none" />
-        <circle cx="11" cy="7" r="1.2" fill="currentColor" stroke="none" />
-        <circle cx="15.5" cy="8.5" r="1.2" fill="currentColor" stroke="none" />
-      </svg>
-    ),
-  },
-  {
-    id: "images",
-    label: "Images",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        className="h-4 w-4"
-      >
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <circle cx="8.5" cy="9.5" r="1.5" />
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M21 16l-5.5-5.5a2 2 0 0 0-2.8 0L4 19"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: "discord",
-    label: "Discord",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        className="h-4 w-4"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M4 12a8 8 0 1 1 8 8 8.4 8.4 0 0 1-3.5-.8L4 20l1-4.2A7.9 7.9 0 0 1 4 12z"
-        />
-      </svg>
-    ),
-  },
+const DISCORD_STYLE_OPTIONS: Array<{
+  value: DiscordTimestampStyle;
+  label: string;
+}> = [
+  { value: "F", label: "Full date with weekday" },
+  { value: "f", label: "Full date" },
+  { value: "R", label: "Relative countdown" },
+  { value: "t", label: "Short time" },
+  { value: "T", label: "Time with seconds" },
+  { value: "D", label: "Long date" },
+  { value: "d", label: "Short date" },
 ];
-
-type CustomizationMode = "simple" | "advanced";
 
 const MIN_ZOOM_LEVEL = 0.25;
 const MAX_ZOOM_LEVEL = 4;
-
-const MIN_PANEL_HEIGHT = 160;
 
 type ExportQuality = 0.5 | 1 | 2;
 
@@ -519,15 +489,12 @@ export default function SchedulePage() {
 
   const [aspectRatioId, setAspectRatioId] = useState<AspectRatioId>("16:9");
   const [scheduleLayout, setScheduleLayout] = useState<ScheduleLayout>("cards");
-  const [customizationMode, setCustomizationMode] =
-    useState<CustomizationMode>("advanced");
 
   const [detectedTimezone] = useState(getBrowserTimezone);
   const [overrideTimezoneEnabled, setOverrideTimezoneEnabled] = useState(false);
   const [overrideTimezone, setOverrideTimezone] = useState(getBrowserTimezone);
 
   const [discordStyle, setDiscordStyle] = useState<DiscordTimestampStyle>("F");
-  const [copyStatus, setCopyStatus] = useState("");
 
   const [schedule, setSchedule] = useState(initialSchedule);
   // The one thing selected on the canvas (or null). This is the raw stored value; use
@@ -556,17 +523,13 @@ export default function SchedulePage() {
 
   const [textBoxes, setTextBoxes] = useState<TextBox[]>([]);
 
-  const [activeTab, setActiveTab] = useState<TabId>("project");
-  const [panelHeight, setPanelHeight] = useState(340);
-
-  const [templateMessage, setTemplateMessage] = useState<TemplateMessage>(null);
+  // The one message shown in the toast: template, PNG export and Discord copy results.
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   const [isImportingTemplate, setIsImportingTemplate] = useState(false);
 
   const [isExportingPng, setIsExportingPng] = useState(false);
   const [exportQuality, setExportQuality] = useState<ExportQuality>(1);
-  const [pngExportMessage, setPngExportMessage] =
-    useState<TemplateMessage>(null);
 
   const [fitScale, setFitScale] = useState(1);
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -574,8 +537,6 @@ export default function SchedulePage() {
 
   const previewAreaRef = useRef<HTMLDivElement | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
-  // The timer that clears the copy status message (see flashCopyStatus).
-  const copyStatusTimerRef = useRef<number | undefined>(undefined);
 
   const dragStateRef = useRef<DragState | null>(null);
   const resizeDragStateRef = useRef<ResizeDragState | null>(null);
@@ -585,9 +546,6 @@ export default function SchedulePage() {
   const textResizeDragStateRef = useRef<TextResizeDragState | null>(null);
   const textRotateDragStateRef = useRef<TextRotateDragState | null>(null);
   const templateInputRef = useRef<HTMLInputElement | null>(null);
-  const panelResizeRef = useRef<{ startY: number; startHeight: number } | null>(
-    null,
-  );
 
   const canvasWidth = ASPECT_RATIOS[aspectRatioId].width;
   const canvasHeight = ASPECT_RATIOS[aspectRatioId].height;
@@ -892,7 +850,7 @@ export default function SchedulePage() {
     const outputHeight = Math.round(canvasHeight * exportQuality);
 
     setIsExportingPng(true);
-    setPngExportMessage({
+    setToast({
       type: "info",
       text: `Preparing ${outputWidth} × ${outputHeight} PNG…`,
     });
@@ -926,14 +884,14 @@ export default function SchedulePage() {
       downloadLink.click();
       downloadLink.remove();
 
-      setPngExportMessage({
+      setToast({
         type: "success",
         text: `Schedule exported at ${outputWidth} × ${outputHeight}.`,
       });
     } catch (error) {
       console.error("PNG export failed:", error);
 
-      setPngExportMessage({
+      setToast({
         type: "error",
         text: "The PNG could not be generated. Try removing unusually large images and export again.",
       });
@@ -1048,7 +1006,7 @@ export default function SchedulePage() {
     };
 
     reader.onerror = () => {
-      setTemplateMessage({
+      setToast({
         type: "error",
         text: `Could not read ${file.name}.`,
       });
@@ -1377,51 +1335,6 @@ export default function SchedulePage() {
     selectElement({ kind: "text", id: textBox.id });
     event.currentTarget.setPointerCapture(event.pointerId);
   }
-
-  function beginPanelResize(event: ReactPointerEvent<HTMLDivElement>) {
-    event.preventDefault();
-
-    panelResizeRef.current = {
-      startY: event.clientY,
-      startHeight: panelHeight,
-    };
-
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  useEffect(() => {
-    function handlePointerMove(event: PointerEvent) {
-      const resizeState = panelResizeRef.current;
-
-      if (!resizeState) {
-        return;
-      }
-
-      const deltaY = event.clientY - resizeState.startY;
-      const maxHeight = Math.max(MIN_PANEL_HEIGHT, window.innerHeight - 160);
-
-      const nextHeight = Math.min(
-        maxHeight,
-        Math.max(MIN_PANEL_HEIGHT, resizeState.startHeight - deltaY),
-      );
-
-      setPanelHeight(nextHeight);
-    }
-
-    function handlePointerUp() {
-      panelResizeRef.current = null;
-    }
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("pointercancel", handlePointerUp);
-
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-      window.removeEventListener("pointercancel", handlePointerUp);
-    };
-  }, []);
 
   useEffect(() => {
     function handlePointerMove(event: PointerEvent) {
@@ -1829,7 +1742,7 @@ export default function SchedulePage() {
 
       const sizeInMegabytes = blob.size / 1024 / 1024;
 
-      setTemplateMessage({
+      setToast({
         type: "success",
         text:
           sizeInMegabytes >= 1
@@ -1841,7 +1754,7 @@ export default function SchedulePage() {
     } catch (error) {
       console.error(error);
 
-      setTemplateMessage({
+      setToast({
         type: "error",
         text: "The template could not be exported.",
       });
@@ -1849,7 +1762,7 @@ export default function SchedulePage() {
   }
 
   function openTemplateImporter() {
-    setTemplateMessage(null);
+    setToast(null);
     templateInputRef.current?.click();
   }
 
@@ -1863,7 +1776,7 @@ export default function SchedulePage() {
     }
 
     if (file.size > MAX_TEMPLATE_SIZE_BYTES) {
-      setTemplateMessage({
+      setToast({
         type: "error",
         text: "This template is larger than the 50 MB import limit.",
       });
@@ -1872,7 +1785,7 @@ export default function SchedulePage() {
     }
 
     setIsImportingTemplate(true);
-    setTemplateMessage({
+    setToast({
       type: "info",
       text: "Reading and validating template…",
     });
@@ -1928,12 +1841,11 @@ export default function SchedulePage() {
       setTextBoxes(parsed.textBoxes);
 
       setSelection(null);
-      setCopyStatus("");
 
       // The imported file is the new saved state once React has applied it.
       resnapshotRef.current = true;
 
-      setTemplateMessage({
+      setToast({
         type: "success",
         text: `Loaded template “${file.name}” successfully.`,
       });
@@ -1943,7 +1855,7 @@ export default function SchedulePage() {
           ? error.message
           : "The template could not be imported.";
 
-      setTemplateMessage({
+      setToast({
         type: "error",
         text: message,
       });
@@ -1952,23 +1864,12 @@ export default function SchedulePage() {
     }
   }
 
-  // Shows a copy result for a few seconds. Errors fade too now, because the Day toolbar
-  // shows this message and an old error would otherwise stick to every day you select.
-  function flashCopyStatus(message: string): void {
-    setCopyStatus(message);
-    // Cancel the previous timer, or it would wipe this newer message early.
-    window.clearTimeout(copyStatusTimerRef.current);
-    copyStatusTimerRef.current = window.setTimeout(() => {
-      setCopyStatus("");
-    }, 2500);
-  }
-
   async function copyText(textToCopy: string, message: string) {
     try {
       await navigator.clipboard.writeText(textToCopy);
-      flashCopyStatus(message);
+      setToast({ type: "success", text: message });
     } catch {
-      flashCopyStatus("Could not access clipboard");
+      setToast({ type: "error", text: "Could not access the clipboard." });
     }
   }
 
@@ -2002,7 +1903,6 @@ export default function SchedulePage() {
             calculatedDate={formatCalculatedDate(
               getDateForDay(scheduleStartDate, target.index),
             )}
-            copyStatus={copyStatus}
             onUpdate={(field, value) => updateDay(target.index, field, value)}
             onToggleWidthLock={toggleSelectedDayWidthLock}
             onMove={moveDay}
@@ -2132,14 +2032,17 @@ export default function SchedulePage() {
 
   async function copySelectedDayTimestamp() {
     if (!selectedDay) {
-      flashCopyStatus("Click a day on the canvas first");
+      setToast({ type: "info", text: "Click a day on the canvas first." });
       return;
     }
 
     const textToCopy = getSelectedDayDiscordText();
 
     if (!textToCopy) {
-      flashCopyStatus("Add a week start date and stream time first");
+      setToast({
+        type: "info",
+        text: "Add a start date and a stream time first.",
+      });
       return;
     }
 
@@ -2150,7 +2053,10 @@ export default function SchedulePage() {
     const textToCopy = getFullWeekDiscordText();
 
     if (!textToCopy) {
-      flashCopyStatus("No active days have a valid stream time");
+      setToast({
+        type: "info",
+        text: "No stream day has a valid stream time yet.",
+      });
       return;
     }
 
@@ -2159,12 +2065,13 @@ export default function SchedulePage() {
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-slate-950 text-slate-50">
-      <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-5 py-2">
+      {/* Wraps onto more lines on narrow screens, so nothing (Export PNG!) gets hidden. */}
+      <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-800 px-5 py-2">
         <div className="flex items-center gap-3">
           <Link
             href="/"
             onClick={confirmLeave}
-            className="rounded-full border border-slate-700 px-3 py-1 text-sm text-slate-300 transition hover:border-violet-400 hover:text-white"
+            className="whitespace-nowrap rounded-full border border-slate-700 px-3 py-1 text-sm text-slate-300 transition hover:border-violet-400 hover:text-white"
           >
             ← Back
           </Link>
@@ -2186,7 +2093,306 @@ export default function SchedulePage() {
           </Link>
         </div>
 
+        {/* Schedule-wide settings. Canvas elements are edited in their own toolbars. */}
+        <nav
+          aria-label="Schedule settings"
+          className="flex flex-wrap items-center gap-1"
+        >
+          <TopBarMenu label="Project" icon={MENU_ICONS.project}>
+            {/* Name, title and dates live here too, so an empty header can be filled
+                (an empty header part isn't on the canvas, so it can't be clicked). */}
+            <TextInput
+              label="Streamer name"
+              value={displayName}
+              onChange={setDisplayName}
+            />
+
+            <TextInput
+              label="Schedule title"
+              value={scheduleTitle}
+              onChange={setScheduleTitle}
+            />
+
+            <div className="grid grid-cols-2 gap-2">
+              <DateInput
+                label="Start date"
+                value={scheduleStartDate}
+                onChange={setScheduleStartDate}
+              />
+
+              <DateInput
+                label="End date"
+                value={scheduleEndDate}
+                onChange={setScheduleEndDate}
+              />
+            </div>
+
+            {dateRangeWarning && (
+              <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold leading-5 text-amber-300">
+                {dateRangeWarning}
+                {scheduleDayCountRaw > MAX_SCHEDULE_DAYS &&
+                  ` (${scheduleDayCountRaw} selected)`}
+              </p>
+            )}
+
+            {calculatedDateRangeLabel && (
+              <p className="text-xs text-slate-400">
+                {schedule.length} day{schedule.length === 1 ? "" : "s"} ·{" "}
+                <span className="font-bold text-slate-200">
+                  {calculatedDateRangeLabel}
+                </span>
+              </p>
+            )}
+
+            <p className="text-xs font-semibold text-slate-400">Aspect ratio</p>
+
+            <div className="grid grid-cols-2 gap-2">
+              {(Object.keys(ASPECT_RATIOS) as AspectRatioId[]).map((ratioId) => (
+                <SmallButton
+                  key={ratioId}
+                  active={aspectRatioId === ratioId}
+                  onClick={() => setAspectRatioId(ratioId)}
+                >
+                  {ASPECT_RATIOS[ratioId].label}
+                </SmallButton>
+              ))}
+            </div>
+
+            <p className="text-xs font-semibold text-slate-400">Layout</p>
+
+            <div className="grid grid-cols-2 gap-2">
+              <SmallButton
+                active={scheduleLayout === "cards"}
+                onClick={() => setScheduleLayout("cards")}
+              >
+                Cards
+              </SmallButton>
+
+              <SmallButton
+                active={scheduleLayout === "list"}
+                onClick={() => setScheduleLayout("list")}
+              >
+                List
+              </SmallButton>
+            </div>
+          </TopBarMenu>
+
+          <TopBarMenu label="Theme" icon={MENU_ICONS.theme}>
+            <ColorInput
+              label="Background 1"
+              value={theme.backgroundA}
+              onChange={(value) => updateTheme("backgroundA", value)}
+            />
+
+            <ColorInput
+              label="Background 2"
+              value={theme.backgroundB}
+              onChange={(value) => updateTheme("backgroundB", value)}
+            />
+
+            <ColorInput
+              label="Stream card"
+              value={theme.cardActive}
+              onChange={(value) => updateTheme("cardActive", value)}
+            />
+
+            <ColorInput
+              label="Rest card"
+              value={theme.cardRest}
+              onChange={(value) => updateTheme("cardRest", value)}
+            />
+
+            <ColorInput
+              label="Text"
+              value={theme.text}
+              onChange={(value) => updateTheme("text", value)}
+            />
+          </TopBarMenu>
+
+          <TopBarMenu label="Background" icon={MENU_ICONS.background}>
+            <PatternControls
+              pattern={backgroundPattern}
+              onChange={setBackgroundPattern}
+            />
+
+            <div className="border-t border-slate-800 pt-3">
+              <FileInput
+                label="Background image"
+                onChange={(file) => readImageFile(file, setBackgroundImage)}
+              />
+            </div>
+
+            {backgroundImage && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <SmallButton
+                    active={backgroundFit === "cover"}
+                    onClick={() => setBackgroundFit("cover")}
+                  >
+                    Cover
+                  </SmallButton>
+
+                  <SmallButton
+                    active={backgroundFit === "contain"}
+                    onClick={() => setBackgroundFit("contain")}
+                  >
+                    Contain
+                  </SmallButton>
+                </div>
+
+                <RangeInput
+                  label="Image opacity"
+                  value={backgroundOpacity}
+                  min={0}
+                  max={100}
+                  onChange={setBackgroundOpacity}
+                />
+
+                <RangeInput
+                  label="Image blur"
+                  value={backgroundBlur}
+                  min={0}
+                  max={20}
+                  onChange={setBackgroundBlur}
+                />
+
+                <SecondaryButton onClick={() => setBackgroundImage(null)}>
+                  Remove background image
+                </SecondaryButton>
+              </>
+            )}
+          </TopBarMenu>
+
+          <TopBarMenu label="Add" icon={MENU_ICONS.add}>
+            {/* A new sticker, text box or avatar is selected straight away, so its
+                toolbar opens, and the menu closes (CLOSES_MENU). */}
+            <div {...CLOSES_MENU}>
+              <FileInput label="Upload sticker" onChange={addSticker} />
+            </div>
+
+            <p className="text-xs leading-5 text-slate-400">
+              Transparent PNG or WebP files work best.
+            </p>
+
+            <button
+              type="button"
+              {...CLOSES_MENU}
+              onClick={addTextBox}
+              className="w-full rounded-xl bg-violet-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-violet-400"
+            >
+              + Add text box
+            </button>
+
+            {/* Once there is an avatar, it is replaced or removed in its own toolbar. */}
+            {!avatarImage && (
+              <div {...CLOSES_MENU}>
+                <FileInput
+                  label="Avatar"
+                  onChange={(file) =>
+                    readImageFile(file, (src) => {
+                      setAvatarImage(src);
+                      setSelection({ kind: "header", part: "avatar" });
+                    })
+                  }
+                />
+              </div>
+            )}
+          </TopBarMenu>
+
+          <TopBarMenu label="Discord" icon={MENU_ICONS.discord}>
+            <div className="rounded-xl border border-slate-700 bg-slate-950 p-3">
+              <p className="text-xs font-semibold text-slate-400">
+                Timezone used
+              </p>
+
+              <p className="mt-1 break-all text-sm font-bold text-slate-200">
+                {effectiveTimezone}
+              </p>
+
+              <p className="mt-1 text-xs leading-5 text-slate-400">
+                {overrideTimezoneEnabled
+                  ? "Using your manually selected timezone."
+                  : "Detected automatically from this device."}
+              </p>
+            </div>
+
+            <ToggleInput
+              label="Override timezone"
+              checked={overrideTimezoneEnabled}
+              onChange={setOverrideTimezoneEnabled}
+            />
+
+            {overrideTimezoneEnabled && (
+              <SelectInput
+                label="Timezone"
+                value={overrideTimezone}
+                onChange={setOverrideTimezone}
+                options={timezoneOptions.map((timezoneName) => ({
+                  value: timezoneName,
+                  label: timezoneName,
+                }))}
+              />
+            )}
+
+            <SelectInput
+              label="Timestamp appearance"
+              value={discordStyle}
+              onChange={(value) =>
+                setDiscordStyle(value as DiscordTimestampStyle)
+              }
+              options={DISCORD_STYLE_OPTIONS}
+            />
+
+            <button
+              type="button"
+              {...CLOSES_MENU}
+              onClick={copyFullWeekTimestamps}
+              className="w-full rounded-xl bg-violet-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-violet-400"
+            >
+              Copy full schedule
+            </button>
+
+            <p className="text-xs leading-5 text-slate-400">
+              Copy a single day from its card&apos;s toolbar. Discord shows
+              timestamps in each reader&apos;s local timezone.
+            </p>
+          </TopBarMenu>
+
+          <TopBarMenu label="Template" icon={MENU_ICONS.template}>
+            <p className="text-xs leading-5 text-slate-400">
+              Templates include all text, styles, dates, uploaded images and
+              sticker positions.
+            </p>
+
+            <button
+              type="button"
+              {...CLOSES_MENU}
+              onClick={exportTemplate}
+              className="w-full rounded-xl bg-violet-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-violet-400"
+            >
+              Export template
+            </button>
+
+            <button
+              type="button"
+              {...CLOSES_MENU}
+              onClick={openTemplateImporter}
+              disabled={isImportingTemplate}
+              className="w-full rounded-xl border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-50"
+            >
+              {isImportingTemplate ? "Importing template…" : "Import template"}
+            </button>
+
+            <p className="text-xs leading-5 text-slate-400">
+              Images are embedded in the JSON file. Large images will produce a
+              larger template.
+            </p>
+          </TopBarMenu>
+        </nav>
+
         <div className="flex flex-wrap items-center gap-2">
+          {/* Outside the Template menu, so it is still there while the file picker is
+              open (the menu closes as soon as Import is clicked). */}
           <input
             ref={templateInputRef}
             type="file"
@@ -2194,23 +2400,6 @@ export default function SchedulePage() {
             onChange={importTemplateFile}
             className="hidden"
           />
-
-          <button
-            type="button"
-            onClick={openTemplateImporter}
-            disabled={isImportingTemplate}
-            className="rounded-full border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 transition hover:border-violet-400 hover:bg-slate-800 disabled:cursor-wait disabled:opacity-50"
-          >
-            {isImportingTemplate ? "Importing…" : "Import template"}
-          </button>
-
-          <button
-            type="button"
-            onClick={exportTemplate}
-            className="rounded-full border border-violet-400/50 bg-violet-500/10 px-4 py-2 text-sm font-bold text-violet-200 transition hover:bg-violet-500/20"
-          >
-            Export template
-          </button>
 
           <div
             role="group"
@@ -2246,45 +2435,15 @@ export default function SchedulePage() {
         </div>
       </header>
 
+      {/* The preview takes all the height below the top bar. */}
       <section className="relative min-h-0 flex-1 overflow-hidden">
-        <div className="absolute inset-x-0 top-0 flex h-[80vh] flex-col">
+        {/* Right under the top bar, above the canvas and its toolbars. */}
+        <Toast message={toast} onDismiss={() => setToast(null)} />
+
+        <div className="flex h-full flex-col">
           <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_top_right,#312e81,transparent_35%),radial-gradient(circle_at_bottom_left,#155e75,transparent_35%),#020617] p-6">
             <div className="mb-3 flex shrink-0 items-center justify-between">
               <div className="flex items-center gap-3">
-                <div
-                  role="group"
-                  aria-label="Customization mode"
-                  className="flex items-center gap-0.5 rounded-full border border-slate-700 p-0.5"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setCustomizationMode("simple")}
-                    aria-pressed={customizationMode === "simple"}
-                    className={[
-                      "rounded-full px-3 py-1 text-xs font-bold transition",
-                      customizationMode === "simple"
-                        ? "bg-violet-500 text-white"
-                        : "text-slate-400 hover:text-slate-200",
-                    ].join(" ")}
-                  >
-                    Simple
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setCustomizationMode("advanced")}
-                    aria-pressed={customizationMode === "advanced"}
-                    className={[
-                      "rounded-full px-3 py-1 text-xs font-bold transition",
-                      customizationMode === "advanced"
-                        ? "bg-violet-500 text-white"
-                        : "text-slate-400 hover:text-slate-200",
-                    ].join(" ")}
-                  >
-                    Advanced
-                  </button>
-                </div>
-
                 <p className="text-sm font-semibold text-slate-400">
                   Live preview
                 </p>
@@ -2681,553 +2840,6 @@ export default function SchedulePage() {
               renderElementToolbar(activeSelection)}
           </section>
         </div>
-
-        <aside
-          className="absolute inset-x-0 bottom-0 z-40 flex flex-col overflow-hidden border-t border-slate-800 bg-slate-900/95 shadow-[0_-20px_40px_-20px_rgba(0,0,0,0.6)]"
-          style={{ height: panelHeight }}
-        >
-          <div
-            onPointerDown={beginPanelResize}
-            className="flex h-3 shrink-0 cursor-row-resize touch-none items-center justify-center"
-            title="Drag to resize the control panel"
-          >
-            <div className="h-1 w-12 rounded-full bg-slate-600" />
-          </div>
-
-          <div
-            role="tablist"
-            aria-label="Editor sections"
-            className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-800 px-4 py-2"
-          >
-            {TABS.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                id={`tab-${tab.id}`}
-                aria-selected={activeTab === tab.id}
-                aria-controls="editor-panel"
-                onClick={() => setActiveTab(tab.id)}
-                className={[
-                  "flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition",
-                  activeTab === tab.id
-                    ? "bg-violet-500/20 text-violet-200"
-                    : "text-slate-400 hover:bg-slate-800 hover:text-slate-200",
-                ].join(" ")}
-              >
-                {tab.icon}
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          <div
-            id="editor-panel"
-            role="tabpanel"
-            aria-labelledby={`tab-${activeTab}`}
-            className="min-h-0 flex-1 overflow-y-auto"
-          >
-            <div className="p-5">
-              {templateMessage && (
-                <TemplateNotice
-                  message={templateMessage}
-                  onDismiss={() => setTemplateMessage(null)}
-                />
-              )}
-
-              {pngExportMessage && (
-                <TemplateNotice
-                  message={pngExportMessage}
-                  onDismiss={() => setPngExportMessage(null)}
-                />
-              )}
-
-              <div className="space-y-5">
-                {activeTab === "project" && (
-                  <>
-                    <Panel title="Template">
-                      <p className="text-xs leading-5 text-slate-400">
-                        Templates include all text, styles, dates, uploaded
-                        images and sticker positions.
-                      </p>
-
-                      <button
-                        type="button"
-                        onClick={exportTemplate}
-                        className="w-full rounded-xl bg-violet-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-violet-400"
-                      >
-                        Export current template
-                      </button>
-
-                      <SecondaryButton
-                        onClick={openTemplateImporter}
-                        disabled={isImportingTemplate}
-                      >
-                        {isImportingTemplate
-                          ? "Importing template…"
-                          : "Import template"}
-                      </SecondaryButton>
-
-                      <p className="text-xs leading-5 text-slate-400">
-                        Images are embedded in the JSON file. Large images will
-                        produce a larger template.
-                      </p>
-                    </Panel>
-                    <Panel title="Project">
-                      <TextInput
-                        label="Streamer name"
-                        value={displayName}
-                        onChange={setDisplayName}
-                      />
-
-                      <TextInput
-                        label="Schedule title"
-                        value={scheduleTitle}
-                        onChange={setScheduleTitle}
-                      />
-
-                      <DateInput
-                        label="Start date"
-                        value={scheduleStartDate}
-                        onChange={setScheduleStartDate}
-                      />
-
-                      <DateInput
-                        label="End date"
-                        value={scheduleEndDate}
-                        onChange={setScheduleEndDate}
-                      />
-
-                      {scheduleStartDate &&
-                        scheduleEndDate &&
-                        scheduleDayCountRaw < 1 && (
-                          <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold leading-5 text-amber-300">
-                            End date is before the start date. Pick a valid
-                            range to update the schedule.
-                          </p>
-                        )}
-
-                      {scheduleDayCountRaw > MAX_SCHEDULE_DAYS && (
-                        <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold leading-5 text-amber-300">
-                          Range capped at {MAX_SCHEDULE_DAYS} days (
-                          {scheduleDayCountRaw} selected).
-                        </p>
-                      )}
-
-                      {calculatedDateRangeLabel && (
-                        <div className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-3">
-                          <p className="text-xs font-semibold text-slate-400">
-                            Generated range · {schedule.length} day
-                            {schedule.length === 1 ? "" : "s"}
-                          </p>
-
-                          <p className="mt-1 text-sm font-bold text-slate-200">
-                            {calculatedDateRangeLabel}
-                          </p>
-                        </div>
-                      )}
-                    </Panel>
-
-                    <Panel title="Canvas">
-                      <p className="text-xs leading-5 text-slate-400">
-                        Choose an aspect ratio for the exported image.
-                      </p>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        {(Object.keys(ASPECT_RATIOS) as AspectRatioId[]).map(
-                          (ratioId) => (
-                            <SmallButton
-                              key={ratioId}
-                              active={aspectRatioId === ratioId}
-                              onClick={() => setAspectRatioId(ratioId)}
-                            >
-                              {ASPECT_RATIOS[ratioId].label}
-                            </SmallButton>
-                          ),
-                        )}
-                      </div>
-
-                      <p className="text-xs leading-5 text-slate-400">
-                        Choose how the schedule itself is displayed.
-                      </p>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <SmallButton
-                          active={scheduleLayout === "cards"}
-                          onClick={() => setScheduleLayout("cards")}
-                        >
-                          Cards
-                        </SmallButton>
-
-                        <SmallButton
-                          active={scheduleLayout === "list"}
-                          onClick={() => setScheduleLayout("list")}
-                        >
-                          List
-                        </SmallButton>
-                      </div>
-                    </Panel>
-
-                    {customizationMode === "advanced" && (
-                      <Panel title="Header typography">
-                        <RangeInput
-                          label="Avatar size"
-                          value={headerStyle.avatarSize}
-                          min={40}
-                          max={300}
-                          step={2}
-                          suffix="px"
-                          onChange={(value) =>
-                            updateHeaderStyle("avatarSize", value)
-                          }
-                        />
-
-                        <RangeInput
-                          label="Avatar gap"
-                          value={headerStyle.avatarGap}
-                          min={0}
-                          max={100}
-                          step={2}
-                          suffix="px"
-                          onChange={(value) =>
-                            updateHeaderStyle("avatarGap", value)
-                          }
-                        />
-
-                        <RangeInput
-                          label="Eyebrow size"
-                          value={headerStyle.eyebrowFontSize}
-                          min={8}
-                          max={60}
-                          step={1}
-                          suffix="px"
-                          onChange={(value) =>
-                            updateHeaderStyle("eyebrowFontSize", value)
-                          }
-                        />
-
-                        <RangeInput
-                          label="Title size"
-                          value={headerStyle.titleFontSize}
-                          min={16}
-                          max={160}
-                          step={1}
-                          suffix="px"
-                          onChange={(value) =>
-                            updateHeaderStyle("titleFontSize", value)
-                          }
-                        />
-
-                        <RangeInput
-                          label="Date size"
-                          value={headerStyle.dateFontSize}
-                          min={8}
-                          max={80}
-                          step={1}
-                          suffix="px"
-                          onChange={(value) =>
-                            updateHeaderStyle("dateFontSize", value)
-                          }
-                        />
-
-                        <RangeInput
-                          label="Text line gap"
-                          value={headerStyle.textGap}
-                          min={0}
-                          max={60}
-                          step={1}
-                          suffix="px"
-                          onChange={(value) =>
-                            updateHeaderStyle("textGap", value)
-                          }
-                        />
-                      </Panel>
-                    )}
-                  </>
-                )}
-
-                {activeTab === "appearance" && (
-                  <>
-                    <Panel title="Appearance">
-                      <PatternControls
-                        pattern={backgroundPattern}
-                        onChange={setBackgroundPattern}
-                      />
-                    </Panel>
-                    <Panel title="Colors">
-                      <ColorInput
-                        label="Background 1"
-                        value={theme.backgroundA}
-                        onChange={(value) => updateTheme("backgroundA", value)}
-                      />
-
-                      <ColorInput
-                        label="Background 2"
-                        value={theme.backgroundB}
-                        onChange={(value) => updateTheme("backgroundB", value)}
-                      />
-
-                      <ColorInput
-                        label="Stream card"
-                        value={theme.cardActive}
-                        onChange={(value) => updateTheme("cardActive", value)}
-                      />
-
-                      <ColorInput
-                        label="Rest card"
-                        value={theme.cardRest}
-                        onChange={(value) => updateTheme("cardRest", value)}
-                      />
-
-                      <ColorInput
-                        label="Text"
-                        value={theme.text}
-                        onChange={(value) => updateTheme("text", value)}
-                      />
-                    </Panel>
-                  </>
-                )}
-
-                {activeTab === "images" && (
-                  <>
-                    {/* Temporary home for these two until Task 8 adds an "Add" menu. A new
-                        sticker or text box is selected straight away, so its toolbar opens. */}
-                    <Panel title="Add to canvas">
-                      <FileInput label="Upload sticker" onChange={addSticker} />
-
-                      <p className="text-xs leading-5 text-slate-400">
-                        Transparent PNG or WebP files work best. Click a sticker or
-                        text box on the canvas to edit it.
-                      </p>
-
-                      <button
-                        type="button"
-                        onClick={addTextBox}
-                        className="w-full rounded-xl bg-violet-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-violet-400"
-                      >
-                        + Add text box
-                      </button>
-                    </Panel>
-
-                    <Panel title="Images">
-                      <FileInput
-                        label="Avatar"
-                        onChange={(file) => readImageFile(file, setAvatarImage)}
-                      />
-
-                      {avatarImage && (
-                        <>
-                          <SecondaryButton onClick={() => setAvatarImage(null)}>
-                            Remove avatar
-                          </SecondaryButton>
-
-                          <RangeInput
-                            label="Avatar zoom"
-                            value={avatarZoom}
-                            min={1}
-                            max={3}
-                            step={0.05}
-                            onChange={setAvatarZoom}
-                          />
-
-                          <RangeInput
-                            label="Avatar horizontal position"
-                            value={avatarOffsetX}
-                            min={-50}
-                            max={50}
-                            step={1}
-                            suffix="%"
-                            onChange={setAvatarOffsetX}
-                          />
-
-                          <RangeInput
-                            label="Avatar vertical position"
-                            value={avatarOffsetY}
-                            min={-50}
-                            max={50}
-                            step={1}
-                            suffix="%"
-                            onChange={setAvatarOffsetY}
-                          />
-
-                          <SecondaryButton
-                            onClick={() => {
-                              setAvatarZoom(1);
-                              setAvatarOffsetX(0);
-                              setAvatarOffsetY(0);
-                            }}
-                          >
-                            Reset framing
-                          </SecondaryButton>
-                        </>
-                      )}
-
-                      <FileInput
-                        label="Background image"
-                        onChange={(file) =>
-                          readImageFile(file, setBackgroundImage)
-                        }
-                      />
-
-                      {backgroundImage && (
-                        <>
-                          <div className="grid grid-cols-2 gap-2">
-                            <SmallButton
-                              active={backgroundFit === "cover"}
-                              onClick={() => setBackgroundFit("cover")}
-                            >
-                              Cover
-                            </SmallButton>
-
-                            <SmallButton
-                              active={backgroundFit === "contain"}
-                              onClick={() => setBackgroundFit("contain")}
-                            >
-                              Contain
-                            </SmallButton>
-                          </div>
-
-                          <RangeInput
-                            label="Image opacity"
-                            value={backgroundOpacity}
-                            min={0}
-                            max={100}
-                            onChange={setBackgroundOpacity}
-                          />
-
-                          <RangeInput
-                            label="Image blur"
-                            value={backgroundBlur}
-                            min={0}
-                            max={20}
-                            onChange={setBackgroundBlur}
-                          />
-
-                          <SecondaryButton
-                            onClick={() => setBackgroundImage(null)}
-                          >
-                            Remove background
-                          </SecondaryButton>
-                        </>
-                      )}
-                    </Panel>
-                  </>
-                )}
-
-                {activeTab === "discord" && (
-                  <Panel title="Discord timestamps">
-                    <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
-                      <p className="text-xs font-semibold text-slate-400">
-                        Timezone used
-                      </p>
-
-                      <p className="mt-1 break-all text-sm font-bold text-slate-200">
-                        {effectiveTimezone}
-                      </p>
-
-                      <p className="mt-1 text-xs leading-5 text-slate-400">
-                        {overrideTimezoneEnabled
-                          ? "Using your manually selected timezone."
-                          : "Detected automatically from this device."}
-                      </p>
-                    </div>
-
-                    <ToggleInput
-                      label="Override timezone"
-                      checked={overrideTimezoneEnabled}
-                      onChange={setOverrideTimezoneEnabled}
-                    />
-
-                    {overrideTimezoneEnabled && (
-                      <SelectInput
-                        label="Timezone"
-                        value={overrideTimezone}
-                        onChange={setOverrideTimezone}
-                        options={timezoneOptions.map((timezoneName) => ({
-                          value: timezoneName,
-                          label: timezoneName,
-                        }))}
-                      />
-                    )}
-
-                    <SelectInput
-                      label="Timestamp appearance"
-                      value={discordStyle}
-                      onChange={(value) =>
-                        setDiscordStyle(value as DiscordTimestampStyle)
-                      }
-                      options={[
-                        {
-                          value: "F",
-                          label: "Full date with weekday",
-                        },
-                        {
-                          value: "f",
-                          label: "Full date",
-                        },
-                        {
-                          value: "R",
-                          label: "Relative countdown",
-                        },
-                        {
-                          value: "t",
-                          label: "Short time",
-                        },
-                        {
-                          value: "T",
-                          label: "Time with seconds",
-                        },
-                        {
-                          value: "D",
-                          label: "Long date",
-                        },
-                        {
-                          value: "d",
-                          label: "Short date",
-                        },
-                      ]}
-                    />
-
-                    {getSelectedDayDiscordText() && (
-                      <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
-                        <p className="mb-1 text-xs font-semibold text-slate-400">
-                          Selected day output
-                        </p>
-
-                        <pre className="whitespace-pre-wrap break-all text-xs text-slate-300">
-                          {getSelectedDayDiscordText()}
-                        </pre>
-                      </div>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={copySelectedDayTimestamp}
-                      className="w-full rounded-xl bg-violet-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-violet-400"
-                    >
-                      Copy selected day
-                    </button>
-
-                    <SecondaryButton onClick={copyFullWeekTimestamps}>
-                      Copy full schedule
-                    </SecondaryButton>
-
-                    {copyStatus && (
-                      <p className="text-center text-xs font-semibold text-violet-300">
-                        {copyStatus}
-                      </p>
-                    )}
-
-                    <p className="text-xs leading-5 text-slate-400">
-                      Discord automatically displays timestamps in each
-                      reader&apos;s local timezone.
-                    </p>
-                  </Panel>
-                )}
-              </div>
-            </div>
-          </div>
-        </aside>
       </section>
     </main>
   );
@@ -3425,37 +3037,6 @@ function ScheduleCard({
             {item.note}
           </p>
         )}
-      </div>
-    </div>
-  );
-}
-
-function TemplateNotice({
-  message,
-  onDismiss,
-}: {
-  message: NonNullable<TemplateMessage>;
-  onDismiss: () => void;
-}) {
-  const classes = {
-    success: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200",
-    error: "border-red-500/40 bg-red-500/10 text-red-200",
-    info: "border-blue-500/40 bg-blue-500/10 text-blue-200",
-  };
-
-  return (
-    <div className={`mb-5 rounded-2xl border p-3 ${classes[message.type]}`}>
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-xs font-semibold leading-5">{message.text}</p>
-
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="shrink-0 text-sm font-bold opacity-70 hover:opacity-100"
-          aria-label="Dismiss message"
-        >
-          ×
-        </button>
       </div>
     </div>
   );

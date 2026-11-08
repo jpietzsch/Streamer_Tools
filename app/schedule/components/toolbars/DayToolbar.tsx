@@ -26,8 +26,6 @@ type DayToolbarProps = ToolbarFrameProps & {
   aspectRatioLabel: string;
   // The day's real date, already formatted ("Wednesday, Nov 11, 2026"), or "".
   calculatedDate: string;
-  // The last Discord copy result ("Wed timestamp copied"), or "".
-  copyStatus: string;
   // A generic function type: `field` and `value` must match, like updateDay in page.tsx.
   onUpdate: <K extends keyof DayItem>(field: K, value: DayItem[K]) => void;
   onToggleWidthLock: (locked: boolean) => void;
@@ -42,7 +40,6 @@ export function DayToolbar({
   widthMode,
   aspectRatioLabel,
   calculatedDate,
-  copyStatus,
   onUpdate,
   onToggleWidthLock,
   onMove,
@@ -257,14 +254,10 @@ export function DayToolbar({
 
       <ToolbarDivider />
 
+      {/* The result ("Wed timestamp copied") shows in the page's toast. */}
       <ToolbarButton label="Copy Discord timestamp" onClick={onCopyTimestamp}>
         Copy Discord
       </ToolbarButton>
-
-      {/* role="status" makes screen readers announce the copy result. */}
-      <span role="status" className="text-[11px] font-semibold text-violet-300">
-        {copyStatus}
-      </span>
     </FloatingToolbar>
   );
 }

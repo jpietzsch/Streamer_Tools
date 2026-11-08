@@ -1,20 +1,8 @@
-import type { ShadowDirection } from "../../../lib/template";
-
-export function Panel({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-      <h2 className="mb-3 text-sm font-bold text-slate-300">{title}</h2>
-
-      <div className="space-y-3">{children}</div>
-    </section>
-  );
-}
+import { useState } from "react";
+import {
+  parseHexColorDraft,
+  type ShadowDirection,
+} from "../../../lib/template";
 
 export function DateInput({
   label,
@@ -204,6 +192,47 @@ export function FileInput({
   );
 }
 
+// The free-text "#rrggbb" box next to a colour picker. What you type is kept as a local
+// draft and only sent on (onChange) once it is a complete colour, so a half-typed "#0"
+// can never reach the canvas or an exported template (which would then fail to import).
+// Leaving the field with an unfinished draft simply shows the current colour again.
+function HexField({
+  label,
+  value,
+  onChange,
+  className,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  className: string;
+}) {
+  // null = not typing right now, so show the real value (it may change from outside,
+  // e.g. the colour picker or a template import, and must show up here straight away).
+  const [draft, setDraft] = useState<string | null>(null);
+
+  return (
+    <input
+      value={draft ?? value}
+      aria-label={`${label} hex code`}
+      // Hex codes are not words; stop the browser from "fixing" them.
+      spellCheck={false}
+      autoComplete="off"
+      onChange={(event) => {
+        setDraft(event.target.value);
+
+        const color = parseHexColorDraft(event.target.value);
+
+        if (color) {
+          onChange(color);
+        }
+      }}
+      onBlur={() => setDraft(null)}
+      className={className}
+    />
+  );
+}
+
 export function ColorInput({
   label,
   value,
@@ -214,24 +243,27 @@ export function ColorInput({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="flex items-center justify-between gap-3">
+    <div className="flex items-center justify-between gap-3">
       <span className="text-xs font-semibold text-slate-400">{label}</span>
 
       <div className="flex items-center gap-2">
-        <input
+        <HexField
+          label={label}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
-          className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100 outline-none"
+          onChange={onChange}
+          className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100 outline-none transition focus:border-violet-400"
         />
 
+        {/* The native picker always gives a valid lowercase "#rrggbb". */}
         <input
           type="color"
           value={value}
+          aria-label={label}
           onChange={(event) => onChange(event.target.value)}
           className="h-8 w-10 cursor-pointer rounded-lg border border-slate-700 bg-slate-900"
         />
       </div>
-    </label>
+    </div>
   );
 }
 
@@ -436,16 +468,25 @@ export function ToolbarColor({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="flex shrink-0 items-center gap-1">
+    <div className="flex shrink-0 items-center gap-1">
       <span className="text-[11px] font-semibold text-slate-400">{label}</span>
 
       <input
         type="color"
         value={value}
+        aria-label={label}
         onChange={(event) => onChange(event.target.value)}
         className="h-7 w-8 cursor-pointer rounded-md border border-slate-700 bg-slate-950"
       />
-    </label>
+
+      {/* For typing or pasting an exact colour; same draft rule as ColorInput. */}
+      <HexField
+        label={label}
+        value={value}
+        onChange={onChange}
+        className={`${TOOLBAR_INPUT_CLASS} w-[4.75rem]`}
+      />
+    </div>
   );
 }
 

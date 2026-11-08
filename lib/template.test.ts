@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DEFAULT_PATTERN } from "./patterns.ts";
-import { parseTemplate } from "./template.ts";
+import { isHexColor, parseHexColorDraft, parseTemplate } from "./template.ts";
 import type { ScheduleTemplate } from "./template.ts";
 
 // Loads a hand-built v7 export from lib/fixtures as plain JSON.
@@ -94,4 +94,30 @@ test("null and arrays are rejected as invalid structure", () => {
     assert.equal(result.ok, false);
     assert.equal(!result.ok && result.error, "The template has an invalid structure.");
   }
+});
+
+test("isHexColor only accepts # plus six hex digits", () => {
+  assert.equal(isHexColor("#0e7490"), true);
+  assert.equal(isHexColor("#FFFFFF"), true);
+  assert.equal(isHexColor("#0"), false);
+  assert.equal(isHexColor("#fff"), false);
+  assert.equal(isHexColor("0e7490"), false);
+  assert.equal(isHexColor("#0e749g"), false);
+  assert.equal(isHexColor(undefined), false);
+});
+
+test("parseHexColorDraft returns null for a half-typed colour", () => {
+  assert.equal(parseHexColorDraft(""), null);
+  assert.equal(parseHexColorDraft("#"), null);
+  assert.equal(parseHexColorDraft("#0"), null);
+  assert.equal(parseHexColorDraft("#12345"), null);
+  assert.equal(parseHexColorDraft("#1234567"), null);
+  assert.equal(parseHexColorDraft("#zzzzzz"), null);
+});
+
+test("parseHexColorDraft normalises a complete colour", () => {
+  assert.equal(parseHexColorDraft("#0E7490"), "#0e7490");
+  assert.equal(parseHexColorDraft("  #abcdef "), "#abcdef");
+  // A missing "#" is added, so pasting "ff0000" works.
+  assert.equal(parseHexColorDraft("ff0000"), "#ff0000");
 });

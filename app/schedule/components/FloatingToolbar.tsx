@@ -252,7 +252,7 @@ export function FloatingToolbar({
 
       if (event.key === "Escape") {
         if (!inToolbar && !inPanel && !onAnchor && target !== document.body) {
-          // Escape in some other input (like the old bottom panel) is not ours.
+          // Escape in some other input (like a top-bar menu) is not ours.
           return;
         }
 
@@ -276,6 +276,10 @@ export function FloatingToolbar({
           toolbar.querySelectorAll<HTMLElement>(FOCUSABLE),
         );
         const first = focusables[0];
+        // The open "More" panel comes after the toolbar, so its last control is the end.
+        const last = Array.from(
+          (panel ?? toolbar).querySelectorAll<HTMLElement>(FOCUSABLE),
+        ).at(-1);
 
         if (onAnchor && !event.shiftKey && first) {
           // The toolbar lives elsewhere in the DOM, so jump into it by hand.
@@ -285,6 +289,21 @@ export function FloatingToolbar({
           // And Shift+Tab from its first control goes back to the anchor.
           event.preventDefault();
           anchor.focus();
+        } else if (target === last && !event.shiftKey && anchor) {
+          // Tab past the end continues on the canvas with the element after the anchor,
+          // as if the toolbar sat right behind it. Without this, focus would fall off the
+          // end of the page. The last element has no next one, so the browser takes over.
+          const canvasElements = Array.from(
+            containerRef.current?.querySelectorAll<HTMLElement>(
+              "[data-select-key]",
+            ) ?? [],
+          );
+          const next = canvasElements[canvasElements.indexOf(anchor) + 1];
+
+          if (next) {
+            event.preventDefault();
+            next.focus();
+          }
         }
       }
     }
