@@ -43,3 +43,99 @@ export function computeToolbarPosition(
 
   return { left, top, placement };
 }
+
+export type MorePanelLayout = {
+  toolbarLeft: number;
+  toolbarTop: number;
+  panelLeft: number;
+  panelTop: number;
+  // The panel's height cap; the panel scrolls inside when its content is taller.
+  panelMaxHeight: number;
+};
+
+// Places the toolbar plus its open "More" panel as one block.
+// Preferred: on the side of the anchor with more room (the toolbar moves there too), so the
+// block never covers the anchor. When neither side can fit the toolbar and a minimal panel
+// (e.g. a zoomed-in card filling the view), it falls back to the normal clamped toolbar
+// position and stacks the panel on whichever side of the toolbar has more room. Covering
+// the anchor is then unavoidable, but everything stays inside the bounds.
+export function computeMorePanelPosition(
+  anchor: Box,
+  bounds: Box,
+  toolbar: { width: number; height: number },
+  // panel.height is the panel's natural (uncapped) content height.
+  panel: { width: number; height: number },
+  maxPanelHeight: number,
+  gap = 8,
+  panelGap = 4,
+  minPanelHeight = 64,
+): MorePanelLayout {
+  const base = computeToolbarPosition(anchor, bounds, toolbar, gap);
+  // The usable vertical range, keeping `gap` margin at the top and bottom.
+  const minTop = bounds.top + gap;
+  const maxBottom = bounds.top + bounds.height - gap;
+
+  // Where the toolbar would go on each side, and whether toolbar + minimal panel fit there.
+  const aboveTop = anchor.top - gap - toolbar.height;
+  const belowTop = anchor.top + anchor.height + gap;
+  const fitsAbove = aboveTop - panelGap - minPanelHeight >= minTop;
+  const fitsBelow =
+    belowTop + toolbar.height + panelGap + minPanelHeight <= maxBottom;
+
+  const roomAbove = anchor.top - bounds.top;
+  const roomBelow = bounds.top + bounds.height - (anchor.top + anchor.height);
+  const preferAbove = roomAbove >= roomBelow;
+
+  // Pick the toolbar's top and the side the panel stacks on.
+  let toolbarTop: number;
+  let panelSide: "above" | "below";
+
+  if (fitsAbove && (preferAbove || !fitsBelow)) {
+    toolbarTop = aboveTop;
+    panelSide = "above";
+  } else if (fitsBelow) {
+    toolbarTop = belowTop;
+    panelSide = "below";
+  } else {
+    // Fallback: the regular, already clamped position; the panel takes the roomier side.
+    toolbarTop = base.top;
+    const spaceAbove = toolbarTop - panelGap - minTop;
+    const spaceBelow = maxBottom - (toolbarTop + toolbar.height + panelGap);
+    panelSide = spaceAbove >= spaceBelow ? "above" : "below";
+  }
+
+  // Safety net: the toolbar itself never leaves the bounds.
+  toolbarTop = clamp(toolbarTop, minTop, maxBottom - toolbar.height);
+
+  // How tall the panel may get on its side (at least minPanelHeight).
+  const room =
+    panelSide === "above"
+      ? toolbarTop - panelGap - minTop
+      : maxBottom - (toolbarTop + toolbar.height + panelGap);
+  const panelMaxHeight = Math.max(
+    minPanelHeight,
+    Math.min(maxPanelHeight, room),
+  );
+  const panelHeight = Math.min(panel.height, panelMaxHeight);
+
+  const desiredPanelTop =
+    panelSide === "above"
+      ? toolbarTop - panelGap - panelHeight
+      : toolbarTop + toolbar.height + panelGap;
+  // Only matters in tiny bounds where even minPanelHeight doesn't fit: keep it visible.
+  const panelTop = clamp(desiredPanelTop, minTop, maxBottom - panelHeight);
+
+  const panelLeft = clamp(
+    base.left,
+    bounds.left + gap,
+    bounds.left + bounds.width - gap - panel.width,
+  );
+
+  return {
+    toolbarLeft: base.left,
+    toolbarTop,
+    panelLeft,
+    panelTop,
+    panelMaxHeight,
+  };
+}

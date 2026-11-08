@@ -10,7 +10,11 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { computeToolbarPosition, type Box } from "../../../lib/toolbarPosition";
+import {
+  computeMorePanelPosition,
+  computeToolbarPosition,
+  type Box,
+} from "../../../lib/toolbarPosition";
 
 // Below 640px (Tailwind's `sm` breakpoint) the toolbar docks to the bottom of the screen.
 const DOCKED_QUERY = "(max-width: 639px)";
@@ -51,10 +55,6 @@ function getDockedSnapshot(): boolean {
 // On the server there is no viewport; assume the floating (desktop) layout.
 function getDockedServerSnapshot(): boolean {
   return false;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(value, max));
 }
 
 // The canvas element the toolbar is attached to, or null if it isn't rendered.
@@ -110,58 +110,40 @@ function placeToolbar(
     height: toolbar.offsetHeight,
   };
 
-  const position = computeToolbarPosition(anchor, bounds, toolbarSize, GAP);
-  let toolbarTop = position.top;
+  // Converts container-space coordinates into the offset parent's space for style.left/top.
+  const offsetX = containerRect.left - parentRect.left;
+  const offsetY = containerRect.top - parentRect.top;
 
-  if (panel) {
-    // The panel goes on whichever side of the anchor has more room. The toolbar moves
-    // to that side too, so toolbar + panel form one block that never covers the anchor.
-    const roomAbove = anchor.top - bounds.top;
-    const roomBelow = bounds.top + bounds.height - (anchor.top + anchor.height);
-    const side = roomAbove >= roomBelow ? "above" : "below";
-
-    if (side !== position.placement) {
-      toolbarTop =
-        side === "above"
-          ? anchor.top - GAP - toolbarSize.height
-          : anchor.top + anchor.height + GAP;
-    }
-
-    // Never taller than 60% of the viewport, and never taller than the room on its side.
-    const viewportLimit = window.innerHeight * 0.6;
-    const panelLeft = clamp(
-      position.left,
-      bounds.left + GAP,
-      bounds.left + bounds.width - GAP - panel.offsetWidth,
-    );
-    let panelTop: number;
-
-    if (side === "above") {
-      // Stack upward: the panel's bottom edge sits just over the toolbar.
-      const panelBottom = toolbarTop - PANEL_GAP;
-      const maxHeight = Math.max(
-        MIN_PANEL_HEIGHT,
-        Math.min(viewportLimit, panelBottom - bounds.top - GAP),
-      );
-      panel.style.maxHeight = `${maxHeight}px`;
-      // Read the height only after maxHeight is set, so a long panel is already capped.
-      panelTop = panelBottom - panel.offsetHeight;
-    } else {
-      panelTop = toolbarTop + toolbarSize.height + PANEL_GAP;
-      const maxHeight = Math.max(
-        MIN_PANEL_HEIGHT,
-        Math.min(viewportLimit, bounds.top + bounds.height - GAP - panelTop),
-      );
-      panel.style.maxHeight = `${maxHeight}px`;
-    }
-
-    // Convert from container space to the offset parent's space.
-    panel.style.left = `${panelLeft + containerRect.left - parentRect.left}px`;
-    panel.style.top = `${panelTop + containerRect.top - parentRect.top}px`;
+  if (!panel) {
+    const position = computeToolbarPosition(anchor, bounds, toolbarSize, GAP);
+    toolbar.style.left = `${position.left + offsetX}px`;
+    toolbar.style.top = `${position.top + offsetY}px`;
+    return;
   }
 
-  toolbar.style.left = `${position.left + containerRect.left - parentRect.left}px`;
-  toolbar.style.top = `${toolbarTop + containerRect.top - parentRect.top}px`;
+  // The panel's natural content height: scrollHeight ignores the current max-height cap,
+  // and offsetHeight - clientHeight adds the border back on.
+  const panelSize = {
+    width: panel.offsetWidth,
+    height: panel.scrollHeight + (panel.offsetHeight - panel.clientHeight),
+  };
+  // Never taller than 60% of the viewport (the function also caps it to the free room).
+  const layout = computeMorePanelPosition(
+    anchor,
+    bounds,
+    toolbarSize,
+    panelSize,
+    window.innerHeight * 0.6,
+    GAP,
+    PANEL_GAP,
+    MIN_PANEL_HEIGHT,
+  );
+
+  toolbar.style.left = `${layout.toolbarLeft + offsetX}px`;
+  toolbar.style.top = `${layout.toolbarTop + offsetY}px`;
+  panel.style.maxHeight = `${layout.panelMaxHeight}px`;
+  panel.style.left = `${layout.panelLeft + offsetX}px`;
+  panel.style.top = `${layout.panelTop + offsetY}px`;
 }
 
 // The floating toolbar shown above (or below) the selected canvas element.
