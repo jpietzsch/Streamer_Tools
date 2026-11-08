@@ -449,8 +449,14 @@ export function ToolbarRange({
         className="w-20 accent-violet-500"
       />
 
-      {/* Fixed width so the toolbar doesn't jitter while the number changes. */}
-      <span className="w-10 text-[11px] tabular-nums text-slate-300">
+      {/* Fixed width so the toolbar doesn't jitter while the number changes.
+          aria-hidden: this span sits inside the <label>, so it would become part of the
+          slider's name ("Size 160px") and change on every step. Screen readers already
+          announce the slider's value on their own. */}
+      <span
+        aria-hidden="true"
+        className="w-10 text-[11px] tabular-nums text-slate-300"
+      >
         {value}
         {suffix}
       </span>

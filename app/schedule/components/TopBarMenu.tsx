@@ -117,8 +117,17 @@ export function TopBarMenu({
       }
     }
 
-    // Window size changes would leave the fixed panel in the wrong place.
+    // Width changes would leave the fixed panel in the wrong place. Height-only changes
+    // are ignored: a phone's on-screen keyboard shrinks the window's height when it opens,
+    // and that must not close the menu the user is typing in.
+    let lastWidth = window.innerWidth;
+
     function handleResize(): void {
+      if (window.innerWidth === lastWidth) {
+        return;
+      }
+
+      lastWidth = window.innerWidth;
       setPosition(null);
     }
 

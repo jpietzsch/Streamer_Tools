@@ -2724,13 +2724,19 @@ export default function SchedulePage() {
 
                           {stickerSelected && (
                             <>
-                              <span className="pointer-events-none absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 -translate-y-full bg-violet-400/70" />
+                              {/* data-toolbar-avoid: these handles stick out past the element's box, so the
+                                  floating toolbar measures them too and stays clear of them. */}
+                              <span
+                                data-toolbar-avoid
+                                className="pointer-events-none absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 -translate-y-full bg-violet-400/70"
+                              />
 
                               <button
                                 type="button"
                                 onPointerDown={(event) =>
                                   beginStickerRotate(event, sticker)
                                 }
+                                data-toolbar-avoid
                                 className="pointer-events-auto absolute left-1/2 top-0 h-4 w-4 -translate-x-1/2 -translate-y-[32px] cursor-grab touch-none rounded-full border-2 border-white bg-violet-500 shadow active:cursor-grabbing"
                                 title="Drag to rotate"
                               />
@@ -2740,6 +2746,7 @@ export default function SchedulePage() {
                                 onPointerDown={(event) =>
                                   beginStickerResize(event, sticker)
                                 }
+                                data-toolbar-avoid
                                 className="pointer-events-auto absolute bottom-0 right-0 h-4 w-4 translate-x-1/2 translate-y-1/2 cursor-nwse-resize touch-none rounded-sm border-2 border-white bg-violet-500 shadow"
                                 title="Drag to resize"
                               />
@@ -2804,13 +2811,19 @@ export default function SchedulePage() {
 
                           {textBoxSelected && (
                             <>
-                              <span className="pointer-events-none absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 -translate-y-full bg-violet-400/70" />
+                              {/* data-toolbar-avoid: these handles stick out past the element's box, so the
+                                  floating toolbar measures them too and stays clear of them. */}
+                              <span
+                                data-toolbar-avoid
+                                className="pointer-events-none absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 -translate-y-full bg-violet-400/70"
+                              />
 
                               <button
                                 type="button"
                                 onPointerDown={(event) =>
                                   beginTextBoxRotate(event, textBox)
                                 }
+                                data-toolbar-avoid
                                 className="pointer-events-auto absolute left-1/2 top-0 h-4 w-4 -translate-x-1/2 -translate-y-[32px] cursor-grab touch-none rounded-full border-2 border-white bg-violet-500 shadow active:cursor-grabbing"
                                 title="Drag to rotate"
                               />
@@ -2820,6 +2833,7 @@ export default function SchedulePage() {
                                 onPointerDown={(event) =>
                                   beginTextBoxResize(event, textBox)
                                 }
+                                data-toolbar-avoid
                                 className="pointer-events-auto absolute bottom-0 right-0 h-4 w-4 translate-x-1/2 translate-y-1/2 cursor-nwse-resize touch-none rounded-sm border-2 border-white bg-violet-500 shadow"
                                 title="Drag to resize"
                               />
@@ -2976,7 +2990,11 @@ function ScheduleCard({
       <div
         {...selectProps}
         className={[
-          "relative h-full w-full cursor-pointer overflow-hidden p-6 text-left transition",
+          // This used to be a <button>, and browsers centre a button's content vertically.
+          // flex-col + justify-center-safe does the same for this div. The "safe" part keeps
+          // text that is taller than the card starting at the top (like a button did)
+          // instead of being cut off at both ends.
+          "relative flex h-full w-full cursor-pointer flex-col justify-center-safe overflow-hidden p-6 text-left transition",
           selected ? SELECTED_OUTLINE : "",
         ].join(" ")}
         style={{
@@ -2992,51 +3010,56 @@ function ScheduleCard({
               : "none",
         }}
       >
-        <p
-          className="mb-6 font-black uppercase tracking-[0.25em]"
-          style={{
-            fontSize: `${item.dayFontSize}px`,
-            lineHeight: 1.2,
-          }}
-        >
-          {item.day}
-        </p>
-
-        {item.title.trim() && (
-          <h3
-            className="break-words font-black"
-            style={{
-              fontSize: `${item.titleFontSize}px`,
-              lineHeight: 1.08,
-            }}
-          >
-            {item.title}
-          </h3>
-        )}
-
-        {item.time.trim() && (
+        {/* One plain block wrapper, so the text is centred as a single unit and the
+            margins between the lines (mb-6, mt-5) still collapse like they did before;
+            flex children never collapse their margins. */}
+        <div>
           <p
-            className="mt-5 font-semibold"
+            className="mb-6 font-black uppercase tracking-[0.25em]"
             style={{
-              fontSize: `${item.timeFontSize}px`,
-              lineHeight: 1.25,
+              fontSize: `${item.dayFontSize}px`,
+              lineHeight: 1.2,
             }}
           >
-            {item.time}
+            {item.day}
           </p>
-        )}
 
-        {item.note.trim() && (
-          <p
-            className="mt-5 break-words italic opacity-75"
-            style={{
-              fontSize: `${item.noteFontSize}px`,
-              lineHeight: 1.45,
-            }}
-          >
-            {item.note}
-          </p>
-        )}
+          {item.title.trim() && (
+            <h3
+              className="break-words font-black"
+              style={{
+                fontSize: `${item.titleFontSize}px`,
+                lineHeight: 1.08,
+              }}
+            >
+              {item.title}
+            </h3>
+          )}
+
+          {item.time.trim() && (
+            <p
+              className="mt-5 font-semibold"
+              style={{
+                fontSize: `${item.timeFontSize}px`,
+                lineHeight: 1.25,
+              }}
+            >
+              {item.time}
+            </p>
+          )}
+
+          {item.note.trim() && (
+            <p
+              className="mt-5 break-words italic opacity-75"
+              style={{
+                fontSize: `${item.noteFontSize}px`,
+                lineHeight: 1.45,
+              }}
+            >
+              {item.note}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

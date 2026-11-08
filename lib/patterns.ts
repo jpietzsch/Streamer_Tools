@@ -125,9 +125,13 @@ export function patternLayerStyle(
     case "zigzag":
       // A real zigzag line: a 24x12 SVG tile whose line starts and ends at the same
       // height, so the tiles join into one continuous zigzag.
+      // The path runs one segment past both tile edges (x = -6 and x = 30). The tile clips
+      // that overhang, but it turns the corners at x = 0 and x = 24 into real joins. With
+      // the line simply ending at the edge, each tile only drew half a corner and a small
+      // notch showed at every tile join.
       return {
         backgroundImage: svgUrl(
-          `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="12" viewBox="0 0 24 12"><path d="M0 9 L6 3 L12 9 L18 3 L24 9" fill="none" stroke="${c}" stroke-width="1.5"/></svg>`,
+          `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="12" viewBox="0 0 24 12"><path d="M-6 3 L0 9 L6 3 L12 9 L18 3 L24 9 L30 3" fill="none" stroke="${c}" stroke-width="1.5"/></svg>`,
         ),
         backgroundSize: `${px(24, s)} ${px(12, s)}`,
       };

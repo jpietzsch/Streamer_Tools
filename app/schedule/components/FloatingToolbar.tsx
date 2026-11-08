@@ -76,6 +76,30 @@ function findAnchor(
   );
 }
 
+// The anchor's on-screen box, grown to include its selection handles. The rotate handle
+// (and its connector line) sticks out above the element, so getBoundingClientRect() on the
+// element alone misses it and the toolbar would cover it. Handles mark themselves with
+// `data-toolbar-avoid`.
+function measureAnchorWithHandles(anchorElement: HTMLElement): DOMRect {
+  const rect = anchorElement.getBoundingClientRect();
+  let left = rect.left;
+  let top = rect.top;
+  let right = rect.right;
+  let bottom = rect.bottom;
+
+  for (const handle of anchorElement.querySelectorAll<HTMLElement>(
+    "[data-toolbar-avoid]",
+  )) {
+    const handleRect = handle.getBoundingClientRect();
+    left = Math.min(left, handleRect.left);
+    top = Math.min(top, handleRect.top);
+    right = Math.max(right, handleRect.right);
+    bottom = Math.max(bottom, handleRect.bottom);
+  }
+
+  return new DOMRect(left, top, right - left, bottom - top);
+}
+
 // Positions the toolbar (and the open "More" panel) by writing their styles directly.
 // Writing to the DOM instead of calling setState means re-measuring never causes another
 // render, and the lint rule against setState inside effects stays happy.
@@ -95,7 +119,7 @@ function placeToolbar(
 
   const containerRect = container.getBoundingClientRect();
   const parentRect = offsetParent.getBoundingClientRect();
-  const anchorRect = anchorElement.getBoundingClientRect();
+  const anchorRect = measureAnchorWithHandles(anchorElement);
 
   // Work in the container's coordinate space: its top-left corner is (0, 0).
   const bounds: Box = {
@@ -226,7 +250,18 @@ export function FloatingToolbar({
     container.addEventListener("transitionend", handleChange);
     container.addEventListener("scroll", handleChange);
 
+    // The anchor can change size on its own, e.g. a freshly added sticker whose image
+    // finishes loading after the toolbar was placed against a 0px-tall box. This effect
+    // re-runs when anchorKey changes, so the observer always watches the current anchor.
+    const anchorElement = findAnchor(container, anchorKey);
+    const resizeObserver = new ResizeObserver(handleChange);
+
+    if (anchorElement) {
+      resizeObserver.observe(anchorElement);
+    }
+
     return () => {
+      resizeObserver.disconnect();
       window.removeEventListener("resize", handleChange);
       container.removeEventListener("transitionend", handleChange);
       container.removeEventListener("scroll", handleChange);
@@ -367,11 +402,12 @@ export function FloatingToolbar({
       aria-label={`More settings for ${label}`}
       onPointerDown={stopPointer}
       className={[
-        // max-h-[60vh] is the hard cap; when floating, placeToolbar may lower it further.
-        "max-h-[60vh] overflow-y-auto border-slate-700 bg-slate-900 p-3 text-sm text-slate-200",
+        "overflow-y-auto border-slate-700 bg-slate-900 p-3 text-sm text-slate-200",
+        // The hard height cap. Floating: 60vh, and placeToolbar may lower it further.
+        // Docked: only 40vh, so on a phone the panel leaves the lower day cards visible.
         docked
-          ? "w-full border-t"
-          : "pointer-events-auto absolute z-50 w-72 max-w-[calc(100%-16px)] rounded-xl border shadow-lg",
+          ? "max-h-[40vh] w-full border-t"
+          : "max-h-[60vh] pointer-events-auto absolute z-50 w-72 max-w-[calc(100%-16px)] rounded-xl border shadow-lg",
       ].join(" ")}
     >
       {more}
