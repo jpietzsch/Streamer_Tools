@@ -41,6 +41,12 @@ type FloatingToolbarProps = {
   children: ReactNode;
 };
 
+// What every element toolbar (Day, Sticker, ...) passes straight through to FloatingToolbar.
+export type ToolbarFrameProps = Pick<
+  FloatingToolbarProps,
+  "anchorKey" | "containerRef" | "label" | "onClose"
+>;
+
 // useSyncExternalStore reads the media query without a setState-in-effect.
 function subscribeToDocked(onChange: () => void): () => void {
   const query = window.matchMedia(DOCKED_QUERY);
@@ -306,8 +312,9 @@ export function FloatingToolbar({
         "flex items-center gap-2 border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200",
         docked
           ? "w-full overflow-x-auto border-t"
-          : // w-max keeps it on one line; max-w stops it growing wider than the preview.
-            "pointer-events-auto absolute z-50 w-max max-w-[calc(100%-16px)] rounded-xl border shadow-lg",
+          : // w-max keeps it on one line; max-w stops it growing wider than the preview,
+            // and flex-wrap moves the controls onto a second line when it hits that cap.
+            "pointer-events-auto absolute z-50 w-max max-w-[calc(100%-16px)] flex-wrap rounded-xl border shadow-lg",
       ].join(" ")}
     >
       {children}
@@ -317,7 +324,8 @@ export function FloatingToolbar({
           ref={moreButtonRef}
           type="button"
           aria-expanded={moreOpen}
-          aria-controls={panelId}
+          // Only point at the panel while it exists; a missing id confuses screen readers.
+          aria-controls={moreOpen ? panelId : undefined}
           onClick={() => setMoreOpen((open) => !open)}
           className={[
             "shrink-0 rounded-lg px-2 py-1 text-xs font-bold transition",

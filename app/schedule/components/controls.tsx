@@ -1,3 +1,5 @@
+import type { ShadowDirection } from "../../../lib/template";
+
 export function Panel({
   title,
   children,
@@ -318,5 +320,279 @@ export function SecondaryButton({
     >
       {children}
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Compact controls for the floating toolbar row. The big controls above stack a label
+// over a full-width input, which is far too tall for a one-line toolbar, so these put a
+// short label next to a small input instead. Same colours, so the look stays the same.
+// ---------------------------------------------------------------------------
+
+const TOOLBAR_INPUT_CLASS =
+  "rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 outline-none transition focus:border-violet-400";
+
+export function ToolbarInput({
+  label,
+  value,
+  onChange,
+  type = "text",
+  widthClass = "w-36",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  // "time" and "date" give the browser's native time and date pickers.
+  type?: "text" | "time" | "date";
+  widthClass?: string;
+}) {
+  return (
+    <label className="flex shrink-0 items-center gap-1">
+      <span className="text-[11px] font-semibold text-slate-400">{label}</span>
+
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className={`${TOOLBAR_INPUT_CLASS} ${widthClass}`}
+      />
+    </label>
+  );
+}
+
+export function ToolbarTextArea({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="flex shrink-0 items-center gap-1">
+      <span className="text-[11px] font-semibold text-slate-400">{label}</span>
+
+      {/* Two rows so a multi-line text box stays editable without a huge toolbar. */}
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={2}
+        className={`${TOOLBAR_INPUT_CLASS} w-44 resize-none leading-4`}
+      />
+    </label>
+  );
+}
+
+export function ToolbarRange({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  suffix = "",
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  suffix?: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="flex shrink-0 items-center gap-1">
+      <span className="text-[11px] font-semibold text-slate-400">{label}</span>
+
+      {/* A slider instead of a number box: typing "12" into a number box would pass
+          through "1" first, which is below most minimums. */}
+      <input
+        type="range"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="w-20 accent-violet-500"
+      />
+
+      {/* Fixed width so the toolbar doesn't jitter while the number changes. */}
+      <span className="w-10 text-[11px] tabular-nums text-slate-300">
+        {value}
+        {suffix}
+      </span>
+    </label>
+  );
+}
+
+export function ToolbarColor({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="flex shrink-0 items-center gap-1">
+      <span className="text-[11px] font-semibold text-slate-400">{label}</span>
+
+      <input
+        type="color"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-7 w-8 cursor-pointer rounded-md border border-slate-700 bg-slate-950"
+      />
+    </label>
+  );
+}
+
+export function ToolbarButton({
+  label,
+  onClick,
+  pressed,
+  danger = false,
+  children,
+}: {
+  // Accessible name and tooltip. Needed because the visible content may be just "B".
+  label: string;
+  onClick: () => void;
+  // Leave out for plain actions; pass true/false for on/off buttons (adds aria-pressed).
+  pressed?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      aria-pressed={pressed}
+      className={[
+        "shrink-0 rounded-lg border px-2 py-1 text-xs font-bold transition",
+        danger
+          ? "border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"
+          : pressed
+            ? "border-violet-400 bg-violet-500/20 text-violet-200"
+            : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
+// A button that opens the file picker. The real <input type="file"> sits hidden inside
+// the label, so clicking the label opens the picker.
+export function ToolbarFileButton({
+  label,
+  onChange,
+}: {
+  label: string;
+  onChange: (file: File) => void;
+}) {
+  return (
+    <label className="shrink-0 cursor-pointer rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs font-bold text-slate-300 transition hover:bg-slate-800 focus-within:border-violet-400">
+      {label}
+
+      <input
+        type="file"
+        accept="image/*"
+        // sr-only (not display:none) keeps the input reachable with the keyboard.
+        className="sr-only"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+
+          if (file) {
+            onChange(file);
+          }
+
+          // Clearing it lets the same file be picked again later.
+          event.target.value = "";
+        }}
+      />
+    </label>
+  );
+}
+
+// A thin vertical line between groups of toolbar controls.
+export function ToolbarDivider() {
+  return <span aria-hidden="true" className="h-5 w-px shrink-0 bg-slate-700" />;
+}
+
+// ---------------------------------------------------------------------------
+// Groups shared by several "More" panels.
+// ---------------------------------------------------------------------------
+
+export type LayerAction = "front" | "back" | "forward" | "backward";
+
+const LAYER_LABELS: Record<LayerAction, string> = {
+  front: "Bring to front",
+  back: "Send to back",
+  forward: "Forward",
+  backward: "Backward",
+};
+
+export function LayerButtons({
+  actions,
+  onMove,
+  hint,
+}: {
+  // Which buttons to show, in order (the sticker toolbar row already has front/back).
+  actions: LayerAction[];
+  onMove: (action: LayerAction) => void;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-semibold text-slate-400">Layering</p>
+
+      {hint && <p className="text-xs leading-5 text-slate-400">{hint}</p>}
+
+      <div className="grid grid-cols-2 gap-2">
+        {actions.map((action) => (
+          <SmallButton key={action} active={false} onClick={() => onMove(action)}>
+            {LAYER_LABELS[action]}
+          </SmallButton>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const SHADOW_DIRECTIONS: ShadowDirection[] = [
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
+];
+
+export function ShadowDirectionPicker({
+  value,
+  onChange,
+}: {
+  value: ShadowDirection;
+  onChange: (direction: ShadowDirection) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-semibold text-slate-400">Shadow direction</p>
+
+      <div className="grid grid-cols-2 gap-2">
+        {SHADOW_DIRECTIONS.map((direction) => (
+          <SmallButton
+            key={direction}
+            active={value === direction}
+            onClick={() => onChange(direction)}
+          >
+            {/* "bottom-right" becomes "bottom right" */}
+            {direction.replace("-", " ")}
+          </SmallButton>
+        ))}
+      </div>
+    </div>
   );
 }

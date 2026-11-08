@@ -19,7 +19,10 @@ import {
 } from "../../lib/discordTimestamp";
 import { DEFAULT_PATTERN, type BackgroundPattern } from "../../lib/patterns";
 import { PatternControls, PatternLayer } from "./components/PatternLayer";
-import { FloatingToolbar } from "./components/FloatingToolbar";
+import { DayToolbar } from "./components/toolbars/DayToolbar";
+import { HeaderToolbar } from "./components/toolbars/HeaderToolbar";
+import { StickerToolbar } from "./components/toolbars/StickerToolbar";
+import { TextBoxToolbar } from "./components/toolbars/TextBoxToolbar";
 import {
   ColorInput,
   DateInput,
@@ -29,10 +32,9 @@ import {
   SecondaryButton,
   SelectInput,
   SmallButton,
-  TextArea,
   TextInput,
-  TimeInput,
   ToggleInput,
+  type LayerAction,
 } from "./components/controls";
 import {
   ASPECT_RATIOS,
@@ -133,8 +135,8 @@ type TemplateMessage = {
   text: string;
 } | null;
 
-type TabId =
-  "project" | "appearance" | "images" | "stickers" | "text" | "day" | "discord";
+// Stickers, text boxes and days are edited in their floating toolbars, not in tabs.
+type TabId = "project" | "appearance" | "images" | "discord";
 
 const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   {
@@ -200,71 +202,6 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
           strokeLinecap="round"
           strokeLinejoin="round"
           d="M21 16l-5.5-5.5a2 2 0 0 0-2.8 0L4 19"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: "stickers",
-    label: "Stickers",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        className="h-4 w-4"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7z"
-        />
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M14 3v5a2 2 0 0 0 2 2h5"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: "text",
-    label: "Text",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        className="h-4 w-4"
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M9 6v14" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6 20h6" />
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M14 20l4-11 4 11M15.3 16.5h5.4"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: "day",
-    label: "Day editor",
-    icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        className="h-4 w-4"
-      >
-        <rect x="3" y="5" width="18" height="16" rx="2" />
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M3 10h18M8 3v4M16 3v4"
         />
       </svg>
     ),
@@ -365,13 +302,6 @@ const defaultStickerStyle = {
   shadowOffset: 0,
   shadowDirection: "bottom-right" as ShadowDirection,
 };
-
-const SHADOW_DIRECTIONS: ShadowDirection[] = [
-  "top-left",
-  "top-right",
-  "bottom-left",
-  "bottom-right",
-];
 
 function getShadowOffsetXY(
   offset: number,
@@ -644,6 +574,8 @@ export default function SchedulePage() {
 
   const previewAreaRef = useRef<HTMLDivElement | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
+  // The timer that clears the copy status message (see flashCopyStatus).
+  const copyStatusTimerRef = useRef<number | undefined>(undefined);
 
   const dragStateRef = useRef<DragState | null>(null);
   const resizeDragStateRef = useRef<ResizeDragState | null>(null);
@@ -688,11 +620,22 @@ export default function SchedulePage() {
 
   // The header parts that are on the canvas right now. Each one only renders when it
   // has content, so a part that disappears can no longer stay selected.
+  // One exception: a text part stays while it is selected, even when emptied. Otherwise
+  // deleting the last letter in its toolbar would remove the part and close the toolbar
+  // you are typing in. It then shows a faint placeholder instead (never in the PNG).
+  // This reads the raw `selection`, because activeSelection is computed from this list.
+  const editingPart = selection?.kind === "header" ? selection.part : null;
   const headerParts: HeaderPart[] = [
     ...(avatarImage ? (["avatar"] as const) : []),
-    ...(displayName.trim() ? (["name"] as const) : []),
-    ...(scheduleTitle.trim() ? (["title"] as const) : []),
-    ...(calculatedDateRangeLabel ? (["dates"] as const) : []),
+    ...(displayName.trim() || editingPart === "name"
+      ? (["name"] as const)
+      : []),
+    ...(scheduleTitle.trim() || editingPart === "title"
+      ? (["title"] as const)
+      : []),
+    ...(calculatedDateRangeLabel || editingPart === "dates"
+      ? (["dates"] as const)
+      : []),
   ];
 
   const showHeader = headerParts.length > 0;
@@ -715,7 +658,7 @@ export default function SchedulePage() {
     setSelection(null);
   }
 
-  // Convenience values for the old bottom-panel tabs, which edit one thing of each kind.
+  // The selected day, for the day helpers, the Day toolbar and the Discord tab.
   const selectedIndex =
     activeSelection?.kind === "day" ? activeSelection.index : null;
   const selectedDay = selectedIndex === null ? null : schedule[selectedIndex];
@@ -724,15 +667,13 @@ export default function SchedulePage() {
       ? ""
       : getDateForDay(scheduleStartDate, selectedIndex);
 
-  const selectedSticker =
-    activeSelection?.kind === "sticker"
-      ? (stickers.find((sticker) => sticker.id === activeSelection.id) ?? null)
-      : null;
-
-  const selectedTextBox =
-    activeSelection?.kind === "text"
-      ? (textBoxes.find((textBox) => textBox.id === activeSelection.id) ?? null)
-      : null;
+  // A short warning for the Dates toolbar when the picked range is unusable.
+  const dateRangeWarning =
+    scheduleStartDate && scheduleEndDate && scheduleDayCountRaw < 1
+      ? "End date is before the start date"
+      : scheduleDayCountRaw > MAX_SCHEDULE_DAYS
+        ? `Capped at ${MAX_SCHEDULE_DAYS} days`
+        : "";
 
   // True when this element is the selected one. Always false while exporting, so the
   // violet outline never ends up in the PNG.
@@ -744,22 +685,13 @@ export default function SchedulePage() {
     );
   }
 
-  // Selects an element and opens the matching old bottom-panel tab, so the app keeps
-  // working until the floating toolbar replaces those tabs.
+  // Selects an element; its floating toolbar then opens next to it.
   function selectElement(target: NonNullable<Selection>): void {
     if (isExportingPng) {
       return;
     }
 
     setSelection(target);
-
-    if (target.kind === "day") setActiveTab("day");
-    if (target.kind === "sticker") setActiveTab("stickers");
-    if (target.kind === "text") setActiveTab("text");
-    if (target.kind === "header") {
-      // The avatar is edited in the Images tab; the text parts in the Project tab.
-      setActiveTab(target.part === "avatar" ? "images" : "project");
-    }
   }
 
   // The human-readable name of a canvas element. Used as its aria-label and as the
@@ -810,6 +742,38 @@ export default function SchedulePage() {
     };
   }
 
+  // selectableProps plus the class list (with the outline when selected) for a header
+  // part, so each part names its selection target only once.
+  function headerPartProps(
+    part: HeaderPart,
+    className: string,
+  ): SelectableProps & { className: string } {
+    const target = { kind: "header", part } as const;
+
+    return {
+      ...selectableProps(target),
+      className: [className, isSelected(target) ? SELECTED_OUTLINE : ""].join(
+        " ",
+      ),
+    };
+  }
+
+  // The text of a header part, or a faint placeholder while an emptied part is being
+  // edited (see headerParts). Never shown in an exported PNG, see headerPartVisible.
+  function headerText(value: string, placeholder: string): React.ReactNode {
+    return value.trim() ? (
+      value
+    ) : (
+      <span className="italic opacity-40">{placeholder}</span>
+    );
+  }
+
+  // Whether to draw a header text part: it has content, or it is selected (placeholder)
+  // and we are not exporting.
+  function headerPartVisible(part: HeaderPart, hasContent: boolean): boolean {
+    return headerParts.includes(part) && (hasContent || !isExportingPng);
+  }
+
   useEffect(() => {
     if (!scheduleStartDate || !scheduleEndDate) {
       return;
@@ -840,18 +804,20 @@ export default function SchedulePage() {
     // No selection reset needed here: activeSelection drops a day that no longer exists.
   }, [scheduleStartDate, scheduleEndDate]);
 
-  // The day helpers below edit the selected day and do nothing when no day is selected.
-  function updateDay<K extends keyof DayItem>(field: K, value: DayItem[K]) {
-    if (selectedIndex === null) {
-      return;
-    }
-
+  // Changes one field of the day at dayIndex.
+  function updateDay<K extends keyof DayItem>(
+    dayIndex: number,
+    field: K,
+    value: DayItem[K],
+  ) {
     setSchedule((current) =>
       current.map((item, index) =>
-        index === selectedIndex ? { ...item, [field]: value } : item,
+        index === dayIndex ? { ...item, [field]: value } : item,
       ),
     );
   }
+
+  // The day helpers below edit the selected day and do nothing when no day is selected.
 
   function getGlobalZIndexBounds(): { min: number; max: number } {
     const allZIndexes = [
@@ -870,7 +836,7 @@ export default function SchedulePage() {
     };
   }
 
-  function moveDay(action: "front" | "back" | "forward" | "backward") {
+  function moveDay(action: LayerAction) {
     if (selectedIndex === null) {
       return;
     }
@@ -1033,7 +999,7 @@ export default function SchedulePage() {
       return;
     }
 
-    updateDay("widthLocked", false);
+    updateDay(selectedIndex, "widthLocked", false);
   }
 
   function resetSelectedDayStyle() {
@@ -1121,10 +1087,7 @@ export default function SchedulePage() {
     // No selection reset needed: activeSelection drops a sticker that no longer exists.
   }
 
-  function moveSticker(
-    stickerId: string,
-    action: "front" | "back" | "forward" | "backward",
-  ) {
+  function moveSticker(stickerId: string, action: LayerAction) {
     const { min, max } = getGlobalZIndexBounds();
 
     setStickers((current) =>
@@ -1184,10 +1147,7 @@ export default function SchedulePage() {
     );
   }
 
-  function moveTextBox(
-    textBoxId: string,
-    action: "front" | "back" | "forward" | "backward",
-  ) {
+  function moveTextBox(textBoxId: string, action: LayerAction) {
     const { min, max } = getGlobalZIndexBounds();
 
     setTextBoxes((current) =>
@@ -1992,16 +1952,130 @@ export default function SchedulePage() {
     }
   }
 
+  // Shows a copy result for a few seconds. Errors fade too now, because the Day toolbar
+  // shows this message and an old error would otherwise stick to every day you select.
+  function flashCopyStatus(message: string): void {
+    setCopyStatus(message);
+    // Cancel the previous timer, or it would wipe this newer message early.
+    window.clearTimeout(copyStatusTimerRef.current);
+    copyStatusTimerRef.current = window.setTimeout(() => {
+      setCopyStatus("");
+    }, 2500);
+  }
+
   async function copyText(textToCopy: string, message: string) {
     try {
       await navigator.clipboard.writeText(textToCopy);
-      setCopyStatus(message);
-
-      window.setTimeout(() => {
-        setCopyStatus("");
-      }, 2000);
+      flashCopyStatus(message);
     } catch {
-      setCopyStatus("Could not access clipboard");
+      flashCopyStatus("Could not access clipboard");
+    }
+  }
+
+  // The floating toolbar for the selected element. The key (one per element) remounts it
+  // when the selection changes, which also closes an open "More" panel.
+  function renderElementToolbar(target: NonNullable<Selection>): React.ReactNode {
+    // Shared by all four toolbars. The key and containerRef are set separately on each:
+    // React warns when `key` arrives through a {...spread}, and the React lint rules
+    // only accept a ref when it is passed straight to a JSX prop.
+    const key = selectionKey(target);
+    const frame = {
+      anchorKey: selectionKey(target),
+      label: selectionLabel(target),
+      onClose: () => setSelection(null),
+    };
+
+    switch (target.kind) {
+      case "day": {
+        const day = schedule[target.index];
+
+        return (
+          <DayToolbar
+            key={key}
+            containerRef={previewAreaRef}
+            {...frame}
+            day={day}
+            widthMode={
+              scheduleLayout === "list" ? "list" : isGridLayout ? "grid" : "row"
+            }
+            aspectRatioLabel={ASPECT_RATIOS[aspectRatioId].label}
+            calculatedDate={formatCalculatedDate(
+              getDateForDay(scheduleStartDate, target.index),
+            )}
+            copyStatus={copyStatus}
+            onUpdate={(field, value) => updateDay(target.index, field, value)}
+            onToggleWidthLock={toggleSelectedDayWidthLock}
+            onMove={moveDay}
+            onResetStyle={resetSelectedDayStyle}
+            onCopyTimestamp={copySelectedDayTimestamp}
+          />
+        );
+      }
+      case "sticker": {
+        const sticker = stickers.find((item) => item.id === target.id);
+
+        // Can't happen (activeSelection only keeps existing stickers); keeps TS happy.
+        if (!sticker) return null;
+
+        return (
+          <StickerToolbar
+            key={key}
+            containerRef={previewAreaRef}
+            {...frame}
+            sticker={sticker}
+            onUpdate={(field, value) => updateSticker(sticker.id, field, value)}
+            onMove={(action) => moveSticker(sticker.id, action)}
+            onRemove={() => removeSticker(sticker.id)}
+          />
+        );
+      }
+      case "text": {
+        const textBox = textBoxes.find((item) => item.id === target.id);
+
+        if (!textBox) return null;
+
+        return (
+          <TextBoxToolbar
+            key={key}
+            containerRef={previewAreaRef}
+            {...frame}
+            textBox={textBox}
+            minWidth={TEXT_BOX_MIN_WIDTH}
+            maxWidth={TEXT_BOX_MAX_WIDTH}
+            onUpdate={(field, value) => updateTextBox(textBox.id, field, value)}
+            onMove={(action) => moveTextBox(textBox.id, action)}
+            onRemove={() => removeTextBox(textBox.id)}
+          />
+        );
+      }
+      case "header":
+        return (
+          <HeaderToolbar
+            key={key}
+            containerRef={previewAreaRef}
+            {...frame}
+            part={target.part}
+            displayName={displayName}
+            onDisplayNameChange={setDisplayName}
+            scheduleTitle={scheduleTitle}
+            onScheduleTitleChange={setScheduleTitle}
+            startDate={scheduleStartDate}
+            onStartDateChange={setScheduleStartDate}
+            endDate={scheduleEndDate}
+            onEndDateChange={setScheduleEndDate}
+            dateWarning={dateRangeWarning}
+            headerStyle={headerStyle}
+            onStyleChange={updateHeaderStyle}
+            avatarZoom={avatarZoom}
+            onAvatarZoomChange={setAvatarZoom}
+            avatarOffsetX={avatarOffsetX}
+            onAvatarOffsetXChange={setAvatarOffsetX}
+            avatarOffsetY={avatarOffsetY}
+            onAvatarOffsetYChange={setAvatarOffsetY}
+            onAvatarReplace={(file) => readImageFile(file, setAvatarImage)}
+            onAvatarRemove={() => setAvatarImage(null)}
+          />
+        );
     }
   }
 
@@ -2058,14 +2132,14 @@ export default function SchedulePage() {
 
   async function copySelectedDayTimestamp() {
     if (!selectedDay) {
-      setCopyStatus("Click a day on the canvas first");
+      flashCopyStatus("Click a day on the canvas first");
       return;
     }
 
     const textToCopy = getSelectedDayDiscordText();
 
     if (!textToCopy) {
-      setCopyStatus("Add a week start date and stream time first");
+      flashCopyStatus("Add a week start date and stream time first");
       return;
     }
 
@@ -2076,7 +2150,7 @@ export default function SchedulePage() {
     const textToCopy = getFullWeekDiscordText();
 
     if (!textToCopy) {
-      setCopyStatus("No active days have a valid stream time");
+      flashCopyStatus("No active days have a valid stream time");
       return;
     }
 
@@ -2287,16 +2361,10 @@ export default function SchedulePage() {
                       >
                         {avatarImage && (
                           <div
-                            {...selectableProps({
-                              kind: "header",
-                              part: "avatar",
-                            })}
-                            className={[
+                            {...headerPartProps(
+                              "avatar",
                               "shrink-0 overflow-hidden rounded-full border-4 border-white/80 bg-white/70 shadow-xl",
-                              isSelected({ kind: "header", part: "avatar" })
-                                ? SELECTED_OUTLINE
-                                : "",
-                            ].join(" ")}
+                            )}
                             style={{
                               width: `${headerStyle.avatarSize}px`,
                               height: `${headerStyle.avatarSize}px`,
@@ -2317,65 +2385,56 @@ export default function SchedulePage() {
                         )}
 
                         <div>
-                          {scheduleTitle.trim() && (
+                          {headerPartVisible(
+                            "title",
+                            Boolean(scheduleTitle.trim()),
+                          ) && (
                             <p
-                              {...selectableProps({
-                                kind: "header",
-                                part: "title",
-                              })}
-                              className={[
+                              {...headerPartProps(
+                                "title",
                                 "font-black uppercase tracking-[0.35em] opacity-70",
-                                isSelected({ kind: "header", part: "title" })
-                                  ? SELECTED_OUTLINE
-                                  : "",
-                              ].join(" ")}
+                              )}
                               style={{
                                 fontSize: `${headerStyle.eyebrowFontSize}px`,
                               }}
                             >
-                              {scheduleTitle}
+                              {headerText(scheduleTitle, "Schedule title")}
                             </p>
                           )}
 
-                          {displayName.trim() && (
+                          {headerPartVisible(
+                            "name",
+                            Boolean(displayName.trim()),
+                          ) && (
                             <h2
-                              {...selectableProps({
-                                kind: "header",
-                                part: "name",
-                              })}
-                              className={[
+                              {...headerPartProps(
+                                "name",
                                 "max-w-3xl font-black leading-tight",
-                                isSelected({ kind: "header", part: "name" })
-                                  ? SELECTED_OUTLINE
-                                  : "",
-                              ].join(" ")}
+                              )}
                               style={{
                                 marginTop: `${headerStyle.textGap}px`,
                                 fontSize: `${headerStyle.titleFontSize}px`,
                               }}
                             >
-                              {displayName}
+                              {headerText(displayName, "Streamer name")}
                             </h2>
                           )}
 
-                          {calculatedDateRangeLabel && (
+                          {headerPartVisible(
+                            "dates",
+                            Boolean(calculatedDateRangeLabel),
+                          ) && (
                             <p
-                              {...selectableProps({
-                                kind: "header",
-                                part: "dates",
-                              })}
-                              className={[
+                              {...headerPartProps(
+                                "dates",
                                 "font-semibold opacity-80",
-                                isSelected({ kind: "header", part: "dates" })
-                                  ? SELECTED_OUTLINE
-                                  : "",
-                              ].join(" ")}
+                              )}
                               style={{
                                 marginTop: `${headerStyle.textGap}px`,
                                 fontSize: `${headerStyle.dateFontSize}px`,
                               }}
                             >
-                              {calculatedDateRangeLabel}
+                              {headerText(calculatedDateRangeLabel, "Pick dates")}
                             </p>
                           )}
                         </div>
@@ -2617,26 +2676,9 @@ export default function SchedulePage() {
 
             {/* Outside the scaled canvas and the preview area (see FloatingToolbar), placed
                 relative to this `relative` section. Not mounted during PNG export. */}
-            {activeSelection !== null && !isExportingPng && (
-              <FloatingToolbar
-                // A new key per element resets the toolbar (closes "More") on reselect.
-                key={selectionKey(activeSelection)}
-                anchorKey={selectionKey(activeSelection)}
-                containerRef={previewAreaRef}
-                label={selectionLabel(activeSelection)}
-                more={
-                  <p className="text-xs text-slate-400">
-                    More settings for {selectionLabel(activeSelection)}
-                  </p>
-                }
-                onClose={() => setSelection(null)}
-              >
-                {/* Placeholder until Task 7 adds the real controls per element type. */}
-                <span className="px-1 text-xs font-semibold text-slate-300">
-                  {selectionLabel(activeSelection)}
-                </span>
-              </FloatingToolbar>
-            )}
+            {activeSelection !== null &&
+              !isExportingPng &&
+              renderElementToolbar(activeSelection)}
           </section>
         </div>
 
@@ -2947,869 +2989,128 @@ export default function SchedulePage() {
                 )}
 
                 {activeTab === "images" && (
-                  <Panel title="Images">
-                    <FileInput
-                      label="Avatar"
-                      onChange={(file) => readImageFile(file, setAvatarImage)}
-                    />
-
-                    {avatarImage && (
-                      <>
-                        <SecondaryButton onClick={() => setAvatarImage(null)}>
-                          Remove avatar
-                        </SecondaryButton>
-
-                        <RangeInput
-                          label="Avatar zoom"
-                          value={avatarZoom}
-                          min={1}
-                          max={3}
-                          step={0.05}
-                          onChange={setAvatarZoom}
-                        />
-
-                        <RangeInput
-                          label="Avatar horizontal position"
-                          value={avatarOffsetX}
-                          min={-50}
-                          max={50}
-                          step={1}
-                          suffix="%"
-                          onChange={setAvatarOffsetX}
-                        />
-
-                        <RangeInput
-                          label="Avatar vertical position"
-                          value={avatarOffsetY}
-                          min={-50}
-                          max={50}
-                          step={1}
-                          suffix="%"
-                          onChange={setAvatarOffsetY}
-                        />
-
-                        <SecondaryButton
-                          onClick={() => {
-                            setAvatarZoom(1);
-                            setAvatarOffsetX(0);
-                            setAvatarOffsetY(0);
-                          }}
-                        >
-                          Reset framing
-                        </SecondaryButton>
-                      </>
-                    )}
-
-                    <FileInput
-                      label="Background image"
-                      onChange={(file) =>
-                        readImageFile(file, setBackgroundImage)
-                      }
-                    />
-
-                    {backgroundImage && (
-                      <>
-                        <div className="grid grid-cols-2 gap-2">
-                          <SmallButton
-                            active={backgroundFit === "cover"}
-                            onClick={() => setBackgroundFit("cover")}
-                          >
-                            Cover
-                          </SmallButton>
-
-                          <SmallButton
-                            active={backgroundFit === "contain"}
-                            onClick={() => setBackgroundFit("contain")}
-                          >
-                            Contain
-                          </SmallButton>
-                        </div>
-
-                        <RangeInput
-                          label="Image opacity"
-                          value={backgroundOpacity}
-                          min={0}
-                          max={100}
-                          onChange={setBackgroundOpacity}
-                        />
-
-                        <RangeInput
-                          label="Image blur"
-                          value={backgroundBlur}
-                          min={0}
-                          max={20}
-                          onChange={setBackgroundBlur}
-                        />
-
-                        <SecondaryButton
-                          onClick={() => setBackgroundImage(null)}
-                        >
-                          Remove background
-                        </SecondaryButton>
-                      </>
-                    )}
-                  </Panel>
-                )}
-
-                {activeTab === "stickers" && (
-                  <Panel title="Stickers">
-                    <FileInput label="Upload sticker" onChange={addSticker} />
-
-                    <p className="text-xs leading-5 text-slate-400">
-                      Transparent PNG or WebP files work best. Drag stickers
-                      directly on the preview.
-                    </p>
-
-                    {stickers.length > 0 && (
-                      <div className="grid grid-cols-4 gap-2">
-                        {stickers.map((sticker) => (
-                          <button
-                            type="button"
-                            key={sticker.id}
-                            onClick={() =>
-                              setSelection({ kind: "sticker", id: sticker.id })
-                            }
-                            className={[
-                              "aspect-square overflow-hidden rounded-xl border bg-slate-900 p-1 transition",
-                              selectedSticker?.id === sticker.id
-                                ? "border-violet-400 ring-2 ring-violet-500/30"
-                                : "border-slate-700 hover:border-slate-500",
-                            ].join(" ")}
-                            title={sticker.name}
-                          >
-                            <img
-                              src={sticker.src}
-                              alt={sticker.name}
-                              className="h-full w-full object-contain"
-                            />
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {!selectedSticker && stickers.length > 0 && (
-                      <p className="text-sm text-slate-400">
-                        Click a sticker on the canvas to edit it.
-                      </p>
-                    )}
-
-                    {selectedSticker && (
-                      <div className="space-y-3 rounded-xl border border-slate-700 bg-slate-900/80 p-3">
-                        <p className="truncate text-xs font-bold text-slate-300">
-                          {selectedSticker.name}
-                        </p>
-
-                        <RangeInput
-                          label="Size"
-                          value={selectedSticker.size}
-                          min={40}
-                          max={400}
-                          onChange={(value) =>
-                            updateSticker(selectedSticker.id, "size", value)
-                          }
-                        />
-
-                        <RangeInput
-                          label="Rotation"
-                          value={selectedSticker.rotation}
-                          min={-180}
-                          max={180}
-                          onChange={(value) =>
-                            updateSticker(selectedSticker.id, "rotation", value)
-                          }
-                        />
-
-                        <RangeInput
-                          label="Opacity"
-                          value={selectedSticker.opacity}
-                          min={0}
-                          max={100}
-                          onChange={(value) =>
-                            updateSticker(selectedSticker.id, "opacity", value)
-                          }
-                        />
-
-                        {customizationMode === "advanced" && (
-                          <>
-                            <RangeInput
-                              label="Corner radius"
-                              value={selectedSticker.borderRadius}
-                              min={0}
-                              max={200}
-                              suffix="px"
-                              onChange={(value) =>
-                                updateSticker(
-                                  selectedSticker.id,
-                                  "borderRadius",
-                                  value,
-                                )
-                              }
-                            />
-
-                            <RangeInput
-                              label="Border width"
-                              value={selectedSticker.borderWidth}
-                              min={0}
-                              max={40}
-                              suffix="px"
-                              onChange={(value) =>
-                                updateSticker(
-                                  selectedSticker.id,
-                                  "borderWidth",
-                                  value,
-                                )
-                              }
-                            />
-
-                            <ColorInput
-                              label="Border color"
-                              value={selectedSticker.borderColor}
-                              onChange={(value) =>
-                                updateSticker(
-                                  selectedSticker.id,
-                                  "borderColor",
-                                  value,
-                                )
-                              }
-                            />
-
-                            <RangeInput
-                              label="Shadow"
-                              value={selectedSticker.shadowOffset}
-                              min={0}
-                              max={80}
-                              suffix="px"
-                              onChange={(value) =>
-                                updateSticker(
-                                  selectedSticker.id,
-                                  "shadowOffset",
-                                  value,
-                                )
-                              }
-                            />
-
-                            <div className="space-y-1">
-                              <p className="text-xs font-semibold text-slate-400">
-                                Shadow direction
-                              </p>
-
-                              <div className="grid grid-cols-2 gap-2">
-                                {SHADOW_DIRECTIONS.map((direction) => (
-                                  <SmallButton
-                                    key={direction}
-                                    active={
-                                      selectedSticker.shadowDirection ===
-                                      direction
-                                    }
-                                    onClick={() =>
-                                      updateSticker(
-                                        selectedSticker.id,
-                                        "shadowDirection",
-                                        direction,
-                                      )
-                                    }
-                                  >
-                                    {direction.replace("-", " ")}
-                                  </SmallButton>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="space-y-1">
-                              <p className="text-xs font-semibold text-slate-400">
-                                Layering
-                              </p>
-
-                              <div className="grid grid-cols-2 gap-2">
-                                <SmallButton
-                                  active={false}
-                                  onClick={() =>
-                                    moveSticker(selectedSticker.id, "front")
-                                  }
-                                >
-                                  Bring to front
-                                </SmallButton>
-
-                                <SmallButton
-                                  active={false}
-                                  onClick={() =>
-                                    moveSticker(selectedSticker.id, "back")
-                                  }
-                                >
-                                  Send to back
-                                </SmallButton>
-
-                                <SmallButton
-                                  active={false}
-                                  onClick={() =>
-                                    moveSticker(selectedSticker.id, "forward")
-                                  }
-                                >
-                                  Forward
-                                </SmallButton>
-
-                                <SmallButton
-                                  active={false}
-                                  onClick={() =>
-                                    moveSticker(selectedSticker.id, "backward")
-                                  }
-                                >
-                                  Backward
-                                </SmallButton>
-                              </div>
-                            </div>
-                          </>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => removeSticker(selectedSticker.id)}
-                          className="w-full rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm font-bold text-red-300 transition hover:bg-red-500/20"
-                        >
-                          Delete sticker
-                        </button>
-                      </div>
-                    )}
-                  </Panel>
-                )}
-
-                {activeTab === "text" && (
-                  <Panel title="Text">
-                    <button
-                      type="button"
-                      onClick={addTextBox}
-                      className="w-full rounded-xl bg-violet-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-violet-400"
-                    >
-                      + Add text box
-                    </button>
-
-                    <p className="text-xs leading-5 text-slate-400">
-                      Position, rotate, and resize a text box on the canvas,
-                      then select it here to write its content.
-                    </p>
-
-                    {textBoxes.length > 0 && (
-                      <div className="space-y-1">
-                        {textBoxes.map((textBox) => (
-                          <button
-                            type="button"
-                            key={textBox.id}
-                            onClick={() =>
-                              setSelection({ kind: "text", id: textBox.id })
-                            }
-                            className={[
-                              "block w-full truncate rounded-lg border px-3 py-2 text-left text-xs font-semibold transition",
-                              selectedTextBox?.id === textBox.id
-                                ? "border-violet-400 bg-violet-500/10 text-violet-200"
-                                : "border-slate-700 text-slate-400 hover:border-slate-500",
-                            ].join(" ")}
-                          >
-                            {textBox.text.trim() || "(empty text box)"}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {!selectedTextBox && textBoxes.length > 0 && (
-                      <p className="text-sm text-slate-400">
-                        Click a text box on the canvas to edit it.
-                      </p>
-                    )}
-
-                    {selectedTextBox && (
-                      <div className="space-y-3 rounded-xl border border-slate-700 bg-slate-900/80 p-3">
-                        <label className="block space-y-1">
-                          <span className="text-xs font-semibold text-slate-400">
-                            Content
-                          </span>
-
-                          <textarea
-                            value={selectedTextBox.text}
-                            onChange={(event) =>
-                              updateTextBox(
-                                selectedTextBox.id,
-                                "text",
-                                event.target.value,
-                              )
-                            }
-                            rows={3}
-                            className="w-full resize-y rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-violet-400"
-                          />
-                        </label>
-
-                        <div className="flex gap-2">
-                          <SmallButton
-                            active={selectedTextBox.bold}
-                            onClick={() =>
-                              updateTextBox(
-                                selectedTextBox.id,
-                                "bold",
-                                !selectedTextBox.bold,
-                              )
-                            }
-                          >
-                            <span className="font-black">B</span>
-                          </SmallButton>
-
-                          <SmallButton
-                            active={selectedTextBox.italic}
-                            onClick={() =>
-                              updateTextBox(
-                                selectedTextBox.id,
-                                "italic",
-                                !selectedTextBox.italic,
-                              )
-                            }
-                          >
-                            <span className="italic">I</span>
-                          </SmallButton>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-2">
-                          {(["left", "center", "right"] as const).map(
-                            (align) => (
-                              <SmallButton
-                                key={align}
-                                active={selectedTextBox.align === align}
-                                onClick={() =>
-                                  updateTextBox(
-                                    selectedTextBox.id,
-                                    "align",
-                                    align,
-                                  )
-                                }
-                              >
-                                {align}
-                              </SmallButton>
-                            ),
-                          )}
-                        </div>
-
-                        <RangeInput
-                          label="Font size"
-                          value={selectedTextBox.fontSize}
-                          min={4}
-                          max={200}
-                          suffix="px"
-                          onChange={(value) =>
-                            updateTextBox(selectedTextBox.id, "fontSize", value)
-                          }
-                        />
-
-                        <RangeInput
-                          label="Box width"
-                          value={selectedTextBox.width}
-                          min={TEXT_BOX_MIN_WIDTH}
-                          max={TEXT_BOX_MAX_WIDTH}
-                          suffix="px"
-                          onChange={(value) =>
-                            updateTextBox(selectedTextBox.id, "width", value)
-                          }
-                        />
-
-                        <RangeInput
-                          label="Rotation"
-                          value={selectedTextBox.rotation}
-                          min={-180}
-                          max={180}
-                          onChange={(value) =>
-                            updateTextBox(selectedTextBox.id, "rotation", value)
-                          }
-                        />
-
-                        <ColorInput
-                          label="Text color"
-                          value={selectedTextBox.color}
-                          onChange={(value) =>
-                            updateTextBox(selectedTextBox.id, "color", value)
-                          }
-                        />
-
-                        {customizationMode === "advanced" && (
-                          <div className="space-y-1">
-                            <p className="text-xs font-semibold text-slate-400">
-                              Layering
-                            </p>
-
-                            <div className="grid grid-cols-2 gap-2">
-                              <SmallButton
-                                active={false}
-                                onClick={() =>
-                                  moveTextBox(selectedTextBox.id, "front")
-                                }
-                              >
-                                Bring to front
-                              </SmallButton>
-
-                              <SmallButton
-                                active={false}
-                                onClick={() =>
-                                  moveTextBox(selectedTextBox.id, "back")
-                                }
-                              >
-                                Send to back
-                              </SmallButton>
-
-                              <SmallButton
-                                active={false}
-                                onClick={() =>
-                                  moveTextBox(selectedTextBox.id, "forward")
-                                }
-                              >
-                                Forward
-                              </SmallButton>
-
-                              <SmallButton
-                                active={false}
-                                onClick={() =>
-                                  moveTextBox(selectedTextBox.id, "backward")
-                                }
-                              >
-                                Backward
-                              </SmallButton>
-                            </div>
-                          </div>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => removeTextBox(selectedTextBox.id)}
-                          className="w-full rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm font-bold text-red-300 transition hover:bg-red-500/20"
-                        >
-                          Delete text box
-                        </button>
-                      </div>
-                    )}
-                  </Panel>
-                )}
-
-                {activeTab === "day" && (
                   <>
-                    <Panel title="Select day">
-                      <div className="grid grid-cols-7 gap-1">
-                        {schedule.map((item, index) => (
-                          <button
-                            type="button"
-                            key={item.day}
-                            onClick={() => setSelection({ kind: "day", index })}
-                            className={[
-                              "rounded-lg py-2 text-xs font-black transition",
-                              selectedIndex === index
-                                ? "bg-violet-500 text-white"
-                                : "bg-slate-800 text-slate-400 hover:bg-slate-700",
-                            ].join(" ")}
-                          >
-                            {item.day}
-                          </button>
-                        ))}
-                      </div>
-                    </Panel>
-                    {selectedDay === null ? (
-                      <p className="text-sm text-slate-400">
-                        Click a day on the canvas to edit it.
+                    {/* Temporary home for these two until Task 8 adds an "Add" menu. A new
+                        sticker or text box is selected straight away, so its toolbar opens. */}
+                    <Panel title="Add to canvas">
+                      <FileInput label="Upload sticker" onChange={addSticker} />
+
+                      <p className="text-xs leading-5 text-slate-400">
+                        Transparent PNG or WebP files work best. Click a sticker or
+                        text box on the canvas to edit it.
                       </p>
-                    ) : (
-                      <>
-                        <Panel title={`${selectedDay.day} content`}>
-                          {selectedDayDate && (
-                            <div className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-3">
-                              <p className="text-xs font-semibold text-slate-400">
-                                Calculated date
-                              </p>
 
-                              <p className="mt-1 text-sm font-bold text-slate-200">
-                                {formatCalculatedDate(selectedDayDate)}
-                              </p>
-                            </div>
-                          )}
+                      <button
+                        type="button"
+                        onClick={addTextBox}
+                        className="w-full rounded-xl bg-violet-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-violet-400"
+                      >
+                        + Add text box
+                      </button>
+                    </Panel>
 
-                          <TextInput
-                            label="Stream title"
-                            value={selectedDay.title}
-                            onChange={(value) => updateDay("title", value)}
+                    <Panel title="Images">
+                      <FileInput
+                        label="Avatar"
+                        onChange={(file) => readImageFile(file, setAvatarImage)}
+                      />
+
+                      {avatarImage && (
+                        <>
+                          <SecondaryButton onClick={() => setAvatarImage(null)}>
+                            Remove avatar
+                          </SecondaryButton>
+
+                          <RangeInput
+                            label="Avatar zoom"
+                            value={avatarZoom}
+                            min={1}
+                            max={3}
+                            step={0.05}
+                            onChange={setAvatarZoom}
                           />
 
-                          <TimeInput
-                            label="Stream time"
-                            value={selectedDay.time}
-                            onChange={(value) => updateDay("time", value)}
+                          <RangeInput
+                            label="Avatar horizontal position"
+                            value={avatarOffsetX}
+                            min={-50}
+                            max={50}
+                            step={1}
+                            suffix="%"
+                            onChange={setAvatarOffsetX}
                           />
 
-                          <TextArea
-                            label="Note"
-                            value={selectedDay.note}
-                            onChange={(value) => updateDay("note", value)}
+                          <RangeInput
+                            label="Avatar vertical position"
+                            value={avatarOffsetY}
+                            min={-50}
+                            max={50}
+                            step={1}
+                            suffix="%"
+                            onChange={setAvatarOffsetY}
                           />
 
-                          <ToggleInput
-                            label="Stream day"
-                            checked={selectedDay.active}
-                            onChange={(checked) => updateDay("active", checked)}
+                          <SecondaryButton
+                            onClick={() => {
+                              setAvatarZoom(1);
+                              setAvatarOffsetX(0);
+                              setAvatarOffsetY(0);
+                            }}
+                          >
+                            Reset framing
+                          </SecondaryButton>
+                        </>
+                      )}
+
+                      <FileInput
+                        label="Background image"
+                        onChange={(file) =>
+                          readImageFile(file, setBackgroundImage)
+                        }
+                      />
+
+                      {backgroundImage && (
+                        <>
+                          <div className="grid grid-cols-2 gap-2">
+                            <SmallButton
+                              active={backgroundFit === "cover"}
+                              onClick={() => setBackgroundFit("cover")}
+                            >
+                              Cover
+                            </SmallButton>
+
+                            <SmallButton
+                              active={backgroundFit === "contain"}
+                              onClick={() => setBackgroundFit("contain")}
+                            >
+                              Contain
+                            </SmallButton>
+                          </div>
+
+                          <RangeInput
+                            label="Image opacity"
+                            value={backgroundOpacity}
+                            min={0}
+                            max={100}
+                            onChange={setBackgroundOpacity}
                           />
-                        </Panel>
-                        {customizationMode === "advanced" && (
-                          <>
-                            <Panel title={`${selectedDay.day} width`}>
-                              {scheduleLayout === "list" ? (
-                                <p className="text-xs leading-5 text-slate-400">
-                                  List rows always span full width. Use the
-                                  &quot;Height&quot; slider in card style to
-                                  control how much vertical space this row takes
-                                  relative to the others.
-                                </p>
-                              ) : isGridLayout ? (
-                                <p className="text-xs leading-5 text-slate-400">
-                                  Width controls only apply to the 16:9 row
-                                  layout. On{" "}
-                                  {ASPECT_RATIOS[aspectRatioId].label}, cards
-                                  fill their grid cell evenly — use the card
-                                  style panel for height instead.
-                                </p>
-                              ) : (
-                                <>
-                                  <ToggleInput
-                                    label="Lock card width"
-                                    checked={selectedDay.widthLocked}
-                                    onChange={toggleSelectedDayWidthLock}
-                                  />
 
-                                  {selectedDay.widthLocked ? (
-                                    <RangeInput
-                                      label="Locked width"
-                                      value={Number(
-                                        selectedDay.lockedWidthPercent.toFixed(
-                                          1,
-                                        ),
-                                      )}
-                                      min={5}
-                                      max={50}
-                                      step={0.5}
-                                      suffix="%"
-                                      onChange={(value) =>
-                                        updateDay("lockedWidthPercent", value)
-                                      }
-                                    />
-                                  ) : (
-                                    <RangeInput
-                                      label="Relative width"
-                                      value={selectedDay.widthWeight}
-                                      min={0.5}
-                                      max={2.5}
-                                      step={0.1}
-                                      onChange={(value) =>
-                                        updateDay("widthWeight", value)
-                                      }
-                                    />
-                                  )}
+                          <RangeInput
+                            label="Image blur"
+                            value={backgroundBlur}
+                            min={0}
+                            max={20}
+                            onChange={setBackgroundBlur}
+                          />
 
-                                  <p className="text-xs leading-5 text-slate-400">
-                                    Locked cards keep their width while unlocked
-                                    cards divide the remaining space.
-                                  </p>
-                                </>
-                              )}
-                            </Panel>
-                            <Panel title={`${selectedDay.day} typography`}>
-                              <RangeInput
-                                label="Weekday size"
-                                value={selectedDay.dayFontSize}
-                                min={10}
-                                max={36}
-                                suffix="px"
-                                onChange={(value) =>
-                                  updateDay("dayFontSize", value)
-                                }
-                              />
-
-                              <RangeInput
-                                label="Title size"
-                                value={selectedDay.titleFontSize}
-                                min={12}
-                                max={54}
-                                suffix="px"
-                                onChange={(value) =>
-                                  updateDay("titleFontSize", value)
-                                }
-                              />
-
-                              <RangeInput
-                                label="Time size"
-                                value={selectedDay.timeFontSize}
-                                min={10}
-                                max={40}
-                                suffix="px"
-                                onChange={(value) =>
-                                  updateDay("timeFontSize", value)
-                                }
-                              />
-
-                              <RangeInput
-                                label="Note size"
-                                value={selectedDay.noteFontSize}
-                                min={10}
-                                max={36}
-                                suffix="px"
-                                onChange={(value) =>
-                                  updateDay("noteFontSize", value)
-                                }
-                              />
-                            </Panel>
-                            <Panel title={`${selectedDay.day} card style`}>
-                              {scheduleLayout === "list" ? (
-                                <>
-                                  <RangeInput
-                                    label="Height (relative weight)"
-                                    value={selectedDay.height}
-                                    min={10}
-                                    max={400}
-                                    onChange={(value) =>
-                                      updateDay("height", value)
-                                    }
-                                  />
-
-                                  <p className="text-xs leading-5 text-slate-400">
-                                    Rows are sized relative to each other's
-                                    weight — a row with 200 takes up twice the
-                                    space of a row with 100.
-                                  </p>
-                                </>
-                              ) : (
-                                <RangeInput
-                                  label="Height"
-                                  value={selectedDay.height}
-                                  min={40}
-                                  max={100}
-                                  suffix="%"
-                                  onChange={(value) =>
-                                    updateDay("height", value)
-                                  }
-                                />
-                              )}
-
-                              <RangeInput
-                                label="Rotation"
-                                value={selectedDay.rotation}
-                                min={-12}
-                                max={12}
-                                suffix="°"
-                                onChange={(value) =>
-                                  updateDay("rotation", value)
-                                }
-                              />
-
-                              <RangeInput
-                                label="Corner radius"
-                                value={selectedDay.borderRadius}
-                                min={0}
-                                max={60}
-                                suffix="px"
-                                onChange={(value) =>
-                                  updateDay("borderRadius", value)
-                                }
-                              />
-
-                              <RangeInput
-                                label="Outline width"
-                                value={selectedDay.borderWidth}
-                                min={0}
-                                max={12}
-                                suffix="px"
-                                onChange={(value) =>
-                                  updateDay("borderWidth", value)
-                                }
-                              />
-
-                              <ColorInput
-                                label="Outline color"
-                                value={selectedDay.borderColor}
-                                onChange={(value) =>
-                                  updateDay("borderColor", value)
-                                }
-                              />
-
-                              <RangeInput
-                                label="Shadow offset"
-                                value={selectedDay.shadowOffset}
-                                min={0}
-                                max={30}
-                                suffix="px"
-                                onChange={(value) =>
-                                  updateDay("shadowOffset", value)
-                                }
-                              />
-
-                              <div className="space-y-1">
-                                <p className="text-xs font-semibold text-slate-400">
-                                  Shadow direction
-                                </p>
-
-                                <div className="grid grid-cols-2 gap-2">
-                                  {SHADOW_DIRECTIONS.map((direction) => (
-                                    <SmallButton
-                                      key={direction}
-                                      active={
-                                        selectedDay.shadowDirection ===
-                                        direction
-                                      }
-                                      onClick={() =>
-                                        updateDay("shadowDirection", direction)
-                                      }
-                                    >
-                                      {direction.replace("-", " ")}
-                                    </SmallButton>
-                                  ))}
-                                </div>
-                              </div>
-
-                              <div className="space-y-1">
-                                <p className="text-xs font-semibold text-slate-400">
-                                  Layering
-                                </p>
-
-                                <p className="text-xs leading-5 text-slate-400">
-                                  Send a day back to let stickers or text peek
-                                  out in front of it, or above.
-                                </p>
-
-                                <div className="grid grid-cols-2 gap-2">
-                                  <SmallButton
-                                    active={false}
-                                    onClick={() => moveDay("front")}
-                                  >
-                                    Bring to front
-                                  </SmallButton>
-
-                                  <SmallButton
-                                    active={false}
-                                    onClick={() => moveDay("back")}
-                                  >
-                                    Send to back
-                                  </SmallButton>
-
-                                  <SmallButton
-                                    active={false}
-                                    onClick={() => moveDay("forward")}
-                                  >
-                                    Forward
-                                  </SmallButton>
-
-                                  <SmallButton
-                                    active={false}
-                                    onClick={() => moveDay("backward")}
-                                  >
-                                    Backward
-                                  </SmallButton>
-                                </div>
-                              </div>
-
-                              <SecondaryButton onClick={resetSelectedDayStyle}>
-                                Reset card style
-                              </SecondaryButton>
-                            </Panel>
-                          </>
-                        )}
-                      </>
-                    )}
+                          <SecondaryButton
+                            onClick={() => setBackgroundImage(null)}
+                          >
+                            Remove background
+                          </SecondaryButton>
+                        </>
+                      )}
+                    </Panel>
                   </>
                 )}
 
